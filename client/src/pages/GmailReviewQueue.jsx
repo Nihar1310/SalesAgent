@@ -28,6 +28,34 @@ const GmailReviewQueue = () => {
     fetchReviewItems();
   }, [filter]);
 
+  useEffect(() => {
+    if (!selectedItem) return;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(selectedItem.extracted_data || '{}');
+    } catch (error) {
+      parsed = {};
+    }
+
+    const normalized = {
+      client: parsed.client ? { ...parsed.client } : {},
+      items: Array.isArray(parsed.items) ? parsed.items.map(item => ({ ...item })) : [],
+      terms: parsed.terms ? { ...parsed.terms } : {},
+      metadata: parsed.metadata ? { ...parsed.metadata } : {},
+    };
+
+    setCorrections((prev) => {
+      if (prev[selectedItem.id]) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [selectedItem.id]: normalized,
+      };
+    });
+  }, [selectedItem]);
+
   const fetchReviewItems = async () => {
     try {
       setLoading(true);
@@ -54,6 +82,11 @@ const GmailReviewQueue = () => {
         if (selectedItem?.id === itemId) {
           setSelectedItem(null);
         }
+        setCorrections((prev) => {
+          const updated = { ...prev };
+          delete updated[itemId];
+          return updated;
+        });
       }
     } catch (error) {
       console.error('Error approving item:', error);
@@ -75,6 +108,11 @@ const GmailReviewQueue = () => {
         if (selectedItem?.id === itemId) {
           setSelectedItem(null);
         }
+        setCorrections((prev) => {
+          const updated = { ...prev };
+          delete updated[itemId];
+          return updated;
+        });
       }
     } catch (error) {
       console.error('Error rejecting item:', error);
@@ -86,10 +124,11 @@ const GmailReviewQueue = () => {
   const handleCorrect = async (itemId) => {
     try {
       setProcessing(true);
+      const payload = corrections[itemId] ? prepareCorrectionsPayload(corrections[itemId]) : {};
       const response = await fetch(`/api/gmail/review-queue/${itemId}/correct`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ corrections: corrections[itemId] || {} })
+        body: JSON.stringify({ corrections: payload })
       });
       
       if (response.ok) {
@@ -97,7 +136,11 @@ const GmailReviewQueue = () => {
         if (selectedItem?.id === itemId) {
           setSelectedItem(null);
         }
-        setCorrections(prev => ({ ...prev, [itemId]: {} }));
+        setCorrections(prev => {
+          const updated = { ...prev };
+          delete updated[itemId];
+          return updated;
+        });
       }
     } catch (error) {
       console.error('Error correcting item:', error);
@@ -106,14 +149,42 @@ const GmailReviewQueue = () => {
     }
   };
 
-  const updateCorrection = (itemId, field, value) => {
-    setCorrections(prev => ({
-      ...prev,
-      [itemId]: {
-        ...prev[itemId],
-        [field]: value
+  const updateCorrectionField = (itemId, path, value) => {
+    setCorrections(prev => {
+      const current = prev[itemId] ? JSON.parse(JSON.stringify(prev[itemId])) : {};
+      let cursor = current;
+      for (let i = 0; i < path.length - 1; i++) {
+        const key = path[i];
+        if (cursor[key] === undefined) {
+          cursor[key] = typeof path[i + 1] === 'number' ? [] : {};
+        }
+        cursor = cursor[key];
       }
-    }));
+      cursor[path[path.length - 1]] = value;
+
+      return {
+        ...prev,
+        [itemId]: current
+      };
+    });
+  };
+
+  const prepareCorrectionsPayload = (data) => {
+    const clone = JSON.parse(JSON.stringify(data));
+
+    if (Array.isArray(clone.items)) {
+      clone.items = clone.items.map((item) => ({
+        ...item,
+        quantity: item.quantity === '' || item.quantity === undefined || item.quantity === null
+          ? null
+          : Number(item.quantity),
+        ratePerUnit: item.ratePerUnit === '' || item.ratePerUnit === undefined || item.ratePerUnit === null
+          ? null
+          : Number(item.ratePerUnit),
+      }));
+    }
+
+    return clone;
   };
 
   const getConfidenceColor = (confidence) => {
@@ -138,9 +209,22 @@ const GmailReviewQueue = () => {
 
   const parseExtractedData = (dataString) => {
     try {
-      return JSON.parse(dataString);
+      const parsed = JSON.parse(dataString);
+      return {
+        client: parsed.client ? { ...parsed.client } : {},
+        items: Array.isArray(parsed.items) ? parsed.items.map((item) => ({ ...item })) : [],
+        terms: parsed.terms ? { ...parsed.terms } : {},
+        metadata: parsed.metadata ? { ...parsed.metadata } : {},
+        confidence: parsed.confidence || 0,
+      };
     } catch {
-      return { items: [], client: {}, confidence: 0 };
+      return {
+        client: {},
+        items: [],
+        terms: {},
+        metadata: {},
+        confidence: 0,
+      };
     }
   };
 
@@ -297,21 +381,51 @@ const GmailReviewQueue = () => {
                   
                   {(() => {
                     const extractedData = parseExtractedData(selectedItem.extracted_data);
+                    const editableData = corrections[selectedItem.id] || extractedData;
                     return (
                       <div className="space-y-6">
                         {/* Client Information */}
-                        {extractedData.client && (
+                        {editableData.client && (
                           <div>
                             <h4 className="font-medium text-gray-700 mb-2">Client Information</h4>
                             <div className="bg-gray-50 rounded-md p-4">
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                                 <div>
                                   <label className="font-medium text-gray-600">Name:</label>
-                                  <p className="text-gray-900">{extractedData.client.name || 'N/A'}</p>
+                                  <input
+                                    type="text"
+                                    value={editableData.client.name || ''}
+                                    onChange={(e) =>
+                                      updateCorrectionField(selectedItem.id, ['client', 'name'], e.target.value)
+                                    }
+                                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                                  />
                                 </div>
                                 <div>
                                   <label className="font-medium text-gray-600">Email:</label>
-                                  <p className="text-gray-900">{extractedData.client.email || 'N/A'}</p>
+                                  <input
+                                    type="email"
+                                    value={editableData.client.email || ''}
+                                    onChange={(e) =>
+                                      updateCorrectionField(selectedItem.id, ['client', 'email'], e.target.value)
+                                    }
+                                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                                  />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <label className="font-medium text-gray-600">Contact Person:</label>
+                                  <input
+                                    type="text"
+                                    value={editableData.client.contactPerson || ''}
+                                    onChange={(e) =>
+                                      updateCorrectionField(
+                                        selectedItem.id,
+                                        ['client', 'contactPerson'],
+                                        e.target.value
+                                      )
+                                    }
+                                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                                  />
                                 </div>
                               </div>
                             </div>
@@ -319,41 +433,106 @@ const GmailReviewQueue = () => {
                         )}
 
                         {/* Quotation Items */}
-                        {extractedData.items && extractedData.items.length > 0 && (
+                        {editableData.items && editableData.items.length > 0 && (
                           <div>
                             <h4 className="font-medium text-gray-700 mb-2">
-                              Quotation Items ({extractedData.items.length})
+                              Quotation Items ({editableData.items.length})
                             </h4>
                             <div className="space-y-3">
-                              {extractedData.items.map((item, index) => (
-                                <div key={index} className="bg-gray-50 rounded-md p-4">
+                              {editableData.items.map((item, index) => (
+                                <div key={index} className="bg-gray-50 rounded-md p-4 space-y-4">
                                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                                     <div className="md:col-span-2">
                                       <label className="font-medium text-gray-600">Material:</label>
-                                      <p className="text-gray-900 font-medium">{item.material || 'N/A'}</p>
+                                      <input
+                                        type="text"
+                                        value={item.material || ''}
+                                        onChange={(e) =>
+                                          updateCorrectionField(
+                                            selectedItem.id,
+                                            ['items', index, 'material'],
+                                            e.target.value
+                                          )
+                                        }
+                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                                      />
                                     </div>
                                     <div>
                                       <label className="font-medium text-gray-600">HSN Code:</label>
-                                      <p className="text-gray-900">{item.hsnCode || 'N/A'}</p>
+                                      <input
+                                        type="text"
+                                        value={item.hsnCode || ''}
+                                        onChange={(e) =>
+                                          updateCorrectionField(
+                                            selectedItem.id,
+                                            ['items', index, 'hsnCode'],
+                                            e.target.value
+                                          )
+                                        }
+                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                                      />
                                     </div>
                                     <div>
                                       <label className="font-medium text-gray-600">Quantity:</label>
-                                      <p className="text-gray-900">{item.quantity || 'N/A'}</p>
+                                      <input
+                                        type="number"
+                                        value={item.quantity ?? ''}
+                                        onChange={(e) =>
+                                          updateCorrectionField(
+                                            selectedItem.id,
+                                            ['items', index, 'quantity'],
+                                            e.target.value
+                                          )
+                                        }
+                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                                      />
                                     </div>
                                     <div>
                                       <label className="font-medium text-gray-600">Unit:</label>
-                                      <p className="text-gray-900">{item.unit || 'N/A'}</p>
+                                      <input
+                                        type="text"
+                                        value={item.unit || ''}
+                                        onChange={(e) =>
+                                          updateCorrectionField(
+                                            selectedItem.id,
+                                            ['items', index, 'unit'],
+                                            e.target.value
+                                          )
+                                        }
+                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                                      />
                                     </div>
                                     <div>
                                       <label className="font-medium text-gray-600">Rate per Unit:</label>
-                                      <p className="text-gray-900 font-semibold">
-                                        ₹{item.ratePerUnit ? item.ratePerUnit.toFixed(2) : 'N/A'}
-                                      </p>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={item.ratePerUnit ?? ''}
+                                      onChange={(e) =>
+                                          updateCorrectionField(
+                                            selectedItem.id,
+                                            ['items', index, 'ratePerUnit'],
+                                            e.target.value
+                                          )
+                                        }
+                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                                      />
                                     </div>
                                     {item.exWorks && (
                                       <div>
                                         <label className="font-medium text-gray-600">Ex Works:</label>
-                                        <p className="text-gray-900">{item.exWorks}</p>
+                                        <input
+                                          type="text"
+                                          value={item.exWorks || ''}
+                                          onChange={(e) =>
+                                            updateCorrectionField(
+                                              selectedItem.id,
+                                              ['items', index, 'exWorks'],
+                                              e.target.value
+                                            )
+                                          }
+                                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                                        />
                                       </div>
                                     )}
                                     <div>
@@ -363,6 +542,50 @@ const GmailReviewQueue = () => {
                                       </span>
                                     </div>
                                   </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Terms */}
+                        {editableData.terms && Object.keys(editableData.terms).length > 0 && (
+                          <div>
+                            <h4 className="font-medium text-gray-700 mb-2">Terms</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                              {Object.entries(editableData.terms).map(([key, value]) => (
+                                <div key={key}>
+                                  <label className="font-medium text-gray-600 capitalize">{key}:</label>
+                                  <input
+                                    type="text"
+                                    value={value || ''}
+                                    onChange={(e) =>
+                                      updateCorrectionField(selectedItem.id, ['terms', key], e.target.value)
+                                    }
+                                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Metadata */}
+                        {editableData.metadata && Object.keys(editableData.metadata).length > 0 && (
+                          <div>
+                            <h4 className="font-medium text-gray-700 mb-2">Metadata</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                              {Object.entries(editableData.metadata).map(([key, value]) => (
+                                <div key={key}>
+                                  <label className="font-medium text-gray-600 capitalize">{key}:</label>
+                                  <input
+                                    type="text"
+                                    value={value || ''}
+                                    onChange={(e) =>
+                                      updateCorrectionField(selectedItem.id, ['metadata', key], e.target.value)
+                                    }
+                                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                                  />
                                 </div>
                               ))}
                             </div>

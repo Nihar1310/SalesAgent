@@ -108,6 +108,7 @@ uploads/
 # Gmail credentials (if stored locally)
 gmail-credentials.json
 tokens.json
+data/gmail-tokens.json
 .clinerules/byterover-rules.md
 .kilocode/rules/byterover-rules.md
 .roo/rules/byterover-rules.md

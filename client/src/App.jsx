@@ -7,6 +7,7 @@ import Clients from './pages/Clients';
 import QuoteBuilder from './pages/QuoteBuilder';
 import Import from './pages/Import';
 import GmailReviewQueue from './pages/GmailReviewQueue';
+import GmailCallback from './pages/GmailCallback';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
           <Route path="/quote-builder" element={<QuoteBuilder />} />
           <Route path="/import" element={<Import />} />
           <Route path="/gmail-review" element={<GmailReviewQueue />} />
+          <Route path="/gmail/callback" element={<GmailCallback />} />
         </Routes>
       </Layout>
     </Router>

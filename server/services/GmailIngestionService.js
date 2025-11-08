@@ -1,5 +1,8 @@
 const { google } = require('googleapis');
 const cron = require('node-cron');
+const fs = require('fs');
+const path = require('path');
+const Database = require('../database/db');
 const GPTParsingService = require('./GPTParsingService');
 const HTMLTableParser = require('./HTMLTableParser');
 const FuzzyMatchingService = require('./FuzzyMatchingService');
@@ -23,6 +26,8 @@ class GmailIngestionService {
         
         // Initialize fuzzy matcher with data
         this.initializeFuzzyMatcher();
+
+        this.tokenPath = path.join(__dirname, '../../data/gmail-tokens.json');
     }
 
     async initializeFuzzyMatcher() {
@@ -68,14 +73,25 @@ class GmailIngestionService {
     }
 
     async loadStoredTokens() {
-        // In a real implementation, load tokens from secure storage
-        // For now, return null to indicate no stored tokens
+        try {
+            if (fs.existsSync(this.tokenPath)) {
+                const raw = fs.readFileSync(this.tokenPath, 'utf8');
+                return JSON.parse(raw);
+            }
+        } catch (error) {
+            console.error('Failed to load Gmail tokens:', error);
+        }
         return null;
     }
 
     async saveTokens(tokens) {
-        // In a real implementation, save tokens to secure storage
-        console.log('Tokens would be saved securely:', tokens);
+        try {
+            fs.mkdirSync(path.dirname(this.tokenPath), { recursive: true });
+            fs.writeFileSync(this.tokenPath, JSON.stringify(tokens, null, 2), { mode: 0o600 });
+            console.log('Gmail tokens saved to disk');
+        } catch (error) {
+            console.error('Failed to save Gmail tokens:', error);
+        }
     }
 
     getAuthUrl() {
@@ -378,16 +394,34 @@ class GmailIngestionService {
                     clientId = clientMatch.clientId;
                     console.log(`Matched client: "${parsingResult.client.name}" -> ${clientMatch.matchedClient?.name} (${clientMatch.confidence})`);
                 } else {
-                    // Create new client
-                    const newClient = await this.clientModel.create({
-                        name: parsingResult.client.name,
-                        email: parsingResult.client.email || '',
-                        contact: parsingResult.client.contactPerson || '',
-                        source: 'gmail'
-                    });
-                    clientId = newClient.id;
-                    result.newClients++;
-                    console.log(`Created new client: ${parsingResult.client.name}`);
+                    const normalizedName = Database.normalizeName(parsingResult.client.name);
+                    try {
+                        const newClient = await this.clientModel.create({
+                            name: parsingResult.client.name,
+                            email: parsingResult.client.email || '',
+                            contact: parsingResult.client.contactPerson || '',
+                            source: 'gmail'
+                        });
+                        clientId = newClient.id;
+                        result.newClients++;
+                        console.log(`Created new client: ${parsingResult.client.name}`);
+                    } catch (error) {
+                        if (error.message.includes('UNIQUE constraint')) {
+                            const existingClient =
+                                (parsingResult.client.email && await this.clientModel.findByEmail(parsingResult.client.email)) ||
+                                await this.clientModel.findByNormalizedName(normalizedName, 'gmail') ||
+                                await this.clientModel.findByNormalizedName(normalizedName);
+
+                            if (existingClient) {
+                                clientId = existingClient.id;
+                                console.log(`Reusing existing client: ${existingClient.name}`);
+                            } else {
+                                throw error;
+                            }
+                        } else {
+                            throw error;
+                        }
+                    }
                 }
             }
 
@@ -401,16 +435,33 @@ class GmailIngestionService {
                     materialId = materialMatch.materialId;
                     console.log(`Matched material: "${item.material}" -> ${materialMatch.matchedMaterial?.name} (${materialMatch.confidence})`);
                 } else {
-                    // Create new material
-                    const newMaterial = await this.materialModel.create({
-                        name: item.material,
-                        description: '',
-                        hsnCode: item.hsnCode || null,
-                        source: 'gmail'
-                    });
-                    materialId = newMaterial.id;
-                    result.newMaterials++;
-                    console.log(`Created new material: ${item.material}`);
+                    const normalizedMaterialName = Database.normalizeName(item.material);
+                    try {
+                        const newMaterial = await this.materialModel.create({
+                            name: item.material,
+                            description: '',
+                            hsnCode: item.hsnCode || null,
+                            source: 'gmail'
+                        });
+                        materialId = newMaterial.id;
+                        result.newMaterials++;
+                        console.log(`Created new material: ${item.material}`);
+                    } catch (error) {
+                        if (error.message.includes('UNIQUE constraint')) {
+                            const existingMaterial =
+                                await this.materialModel.findByNormalizedName(normalizedMaterialName, 'gmail') ||
+                                await this.materialModel.findByNormalizedName(normalizedMaterialName);
+
+                            if (existingMaterial) {
+                                materialId = existingMaterial.id;
+                                console.log(`Reusing existing material: ${existingMaterial.name}`);
+                            } else {
+                                throw error;
+                            }
+                        } else {
+                            throw error;
+                        }
+                    }
                 }
 
                 // Create price history entry
