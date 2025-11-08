@@ -1,0 +1,569 @@
+const { google } = require('googleapis');
+const cron = require('node-cron');
+const GPTParsingService = require('./GPTParsingService');
+const HTMLTableParser = require('./HTMLTableParser');
+const FuzzyMatchingService = require('./FuzzyMatchingService');
+const LearningService = require('./LearningService');
+
+class GmailIngestionService {
+    constructor(db, materialModel, clientModel, priceHistoryModel) {
+        this.db = db;
+        this.materialModel = materialModel;
+        this.clientModel = clientModel;
+        this.priceHistoryModel = priceHistoryModel;
+        this.gmail = null;
+        this.oauth2Client = null;
+        this.isRunning = false;
+        
+        // Initialize parsing services
+        this.gptParser = new GPTParsingService();
+        this.htmlParser = new HTMLTableParser();
+        this.fuzzyMatcher = new FuzzyMatchingService();
+        this.learningService = new LearningService(db);
+        
+        // Initialize fuzzy matcher with data
+        this.initializeFuzzyMatcher();
+    }
+
+    async initializeFuzzyMatcher() {
+        try {
+            // Load materials and clients for fuzzy matching
+            const materials = await this.materialModel.getAll();
+            const clients = await this.clientModel.getAll();
+            
+            // Load learned aliases
+            const aliases = await this.learningService.getAllAliases();
+            
+            // Initialize fuzzy matcher
+            await this.fuzzyMatcher.initialize(materials, clients, aliases);
+            
+            console.log('Fuzzy matcher initialized with', materials.length, 'materials and', clients.length, 'clients');
+        } catch (error) {
+            console.error('Failed to initialize fuzzy matcher:', error);
+        }
+    }
+
+    async initialize() {
+        try {
+            // Initialize OAuth2 client
+            this.oauth2Client = new google.auth.OAuth2(
+                process.env.GMAIL_CLIENT_ID,
+                process.env.GMAIL_CLIENT_SECRET,
+                process.env.GMAIL_REDIRECT_URI
+            );
+
+            // Check if we have stored credentials
+            // In production, you'd load this from a secure store
+            const tokens = await this.loadStoredTokens();
+            if (tokens) {
+                this.oauth2Client.setCredentials(tokens);
+                this.gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
+                console.log('Gmail API initialized successfully');
+            } else {
+                console.log('Gmail API credentials not found. Please authenticate first.');
+            }
+        } catch (error) {
+            console.error('Failed to initialize Gmail API:', error);
+        }
+    }
+
+    async loadStoredTokens() {
+        // In a real implementation, load tokens from secure storage
+        // For now, return null to indicate no stored tokens
+        return null;
+    }
+
+    async saveTokens(tokens) {
+        // In a real implementation, save tokens to secure storage
+        console.log('Tokens would be saved securely:', tokens);
+    }
+
+    getAuthUrl() {
+        if (!this.oauth2Client) {
+            throw new Error('OAuth2 client not initialized');
+        }
+
+        const scopes = [
+            'https://www.googleapis.com/auth/gmail.readonly',
+        ];
+
+        return this.oauth2Client.generateAuthUrl({
+            access_type: 'offline',
+            scope: scopes,
+        });
+    }
+
+    async handleAuthCallback(code) {
+        try {
+            const { tokens } = await this.oauth2Client.getToken(code);
+            this.oauth2Client.setCredentials(tokens);
+            await this.saveTokens(tokens);
+            
+            this.gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
+            console.log('Gmail authentication successful');
+            
+            return true;
+        } catch (error) {
+            console.error('Gmail authentication failed:', error);
+            throw error;
+        }
+    }
+
+    async runIngestion() {
+        if (!this.gmail) {
+            console.log('Gmail API not authenticated. Skipping ingestion.');
+            return { success: false, error: 'Not authenticated' };
+        }
+
+        if (this.isRunning) {
+            console.log('Ingestion already running. Skipping.');
+            return { success: false, error: 'Already running' };
+        }
+
+        this.isRunning = true;
+        console.log('Starting Gmail ingestion...');
+
+        try {
+            const result = await this.processQuotationEmails();
+            console.log('Gmail ingestion completed:', result);
+            return result;
+        } catch (error) {
+            console.error('Gmail ingestion failed:', error);
+            return { success: false, error: error.message };
+        } finally {
+            this.isRunning = false;
+        }
+    }
+
+    async processQuotationEmails() {
+        const result = {
+            success: true,
+            processedEmails: 0,
+            newMaterials: 0,
+            newClients: 0,
+            newPriceEntries: 0,
+            errors: []
+        };
+
+        try {
+            // Search for quotation-related emails
+            const query = 'subject:(quotation OR quote OR price OR proposal) OR body:(quotation OR quote OR price)';
+            const response = await this.gmail.users.messages.list({
+                userId: 'me',
+                q: query,
+                maxResults: 50 // Limit to recent emails
+            });
+
+            if (!response.data.messages) {
+                return result;
+            }
+
+            for (const message of response.data.messages) {
+                try {
+                    // Check if already processed
+                    const existing = await this.db.get(
+                        'SELECT id FROM gmail_ingestion_log WHERE message_id = ?',
+                        [message.id]
+                    );
+
+                    if (existing) {
+                        continue; // Skip already processed emails
+                    }
+
+                    const emailResult = await this.processEmail(message.id);
+                    result.processedEmails++;
+                    result.newMaterials += emailResult.newMaterials;
+                    result.newClients += emailResult.newClients;
+                    result.newPriceEntries += emailResult.newPriceEntries;
+
+                } catch (error) {
+                    console.error(`Error processing email ${message.id}:`, error);
+                    result.errors.push({
+                        messageId: message.id,
+                        error: error.message
+                    });
+                }
+            }
+
+        } catch (error) {
+            result.success = false;
+            result.error = error.message;
+        }
+
+        return result;
+    }
+
+    async processEmail(messageId) {
+        const startTime = Date.now();
+        const result = {
+            newMaterials: 0,
+            newClients: 0,
+            newPriceEntries: 0,
+            method: 'unknown',
+            confidence: 0,
+            cost: 0
+        };
+
+        try {
+            // Get email details
+            const message = await this.gmail.users.messages.get({
+                userId: 'me',
+                id: messageId,
+                format: 'full'
+            });
+
+            const headers = message.data.payload.headers;
+            const subject = headers.find(h => h.name === 'Subject')?.value || '';
+            const from = headers.find(h => h.name === 'From')?.value || '';
+            const threadId = message.data.threadId;
+
+            // Extract email body (both HTML and plain text)
+            const emailBody = this.extractEmailBody(message.data.payload);
+            
+            // Prepare email data for parsing
+            const emailData = {
+                subject,
+                from,
+                body: emailBody.html || emailBody.plain,
+                existingMaterials: await this.materialModel.getAll(),
+                existingClients: await this.clientModel.getAll()
+            };
+
+            // HYBRID PARSING PIPELINE
+            let parsingResult = null;
+            
+            // 1. Try HTML table parser first (fast and cost-effective)
+            if (emailBody.html) {
+                console.log(`Trying HTML table parser for email ${messageId}`);
+                const htmlResult = this.htmlParser.parseQuotationTable(emailBody.html, { subject, from });
+                
+                if (htmlResult.success && htmlResult.confidence >= 0.95) {
+                    console.log(`HTML parser succeeded with confidence ${htmlResult.confidence}`);
+                    parsingResult = htmlResult;
+                    result.method = 'html_table';
+                    result.confidence = htmlResult.confidence;
+                }
+            }
+            
+            // 2. If HTML parser failed or low confidence, use GPT-4o Mini
+            if (!parsingResult || parsingResult.confidence < 0.95) {
+                console.log(`Using GPT-4o Mini for email ${messageId} (HTML confidence: ${parsingResult?.confidence || 0})`);
+                const gptResult = await this.gptParser.parseQuotationEmail(emailData);
+                
+                if (gptResult.success) {
+                    // 3. Cross-validate if both parsers succeeded
+                    if (parsingResult && parsingResult.success) {
+                        parsingResult = this.crossValidate(parsingResult, gptResult);
+                        result.method = 'hybrid';
+                    } else {
+                        parsingResult = gptResult.data;
+                        result.method = 'gpt-4o-mini';
+                    }
+                    result.confidence = gptResult.confidence;
+                    result.cost = gptResult.cost;
+                }
+            }
+
+            if (!parsingResult || !parsingResult.items || parsingResult.items.length === 0) {
+                console.log(`No quotation data found in email ${messageId}`);
+                await this.logProcessingResult(messageId, threadId, subject, from, 0, 'success', result.method, result.confidence, Date.now() - startTime, result.cost);
+                return result;
+            }
+
+            // 4. Apply fuzzy matching to materials and clients
+            const processedData = await this.saveWithFuzzyMatching(parsingResult, threadId);
+            
+            result.newMaterials = processedData.newMaterials;
+            result.newClients = processedData.newClients;
+            result.newPriceEntries = processedData.newPriceEntries;
+
+            // 5. Check if needs human review (low confidence)
+            if (result.confidence < 0.90) {
+                await this.addToReviewQueue(messageId, threadId, subject, from, parsingResult, result.confidence, result.method);
+            }
+
+            // Log successful processing
+            await this.logProcessingResult(messageId, threadId, subject, from, parsingResult.items.length, 'success', result.method, result.confidence, Date.now() - startTime, result.cost);
+            
+            // Record learning data
+            await this.learningService.recordParsingSuccess(messageId, result.method, result.confidence, parsingResult.items.length);
+
+        } catch (error) {
+            console.error(`Error processing email ${messageId}:`, error);
+            
+            // Log failed processing
+            await this.logProcessingResult(messageId, null, null, null, 0, 'failed', result.method, 0, Date.now() - startTime, result.cost, error.message);
+            
+            // Record failure for learning
+            await this.learningService.recordParsingFailure(messageId, result.method, error.message);
+            
+            throw error;
+        }
+
+        return result;
+    }
+
+    extractEmailBody(payload) {
+        const result = {
+            html: '',
+            plain: ''
+        };
+        
+        const extractFromPart = (part) => {
+            if (part.body && part.body.data) {
+                const content = Buffer.from(part.body.data, 'base64').toString();
+                if (part.mimeType === 'text/html') {
+                    result.html += content;
+                } else if (part.mimeType === 'text/plain') {
+                    result.plain += content;
+                }
+            }
+        };
+        
+        if (payload.body && payload.body.data) {
+            extractFromPart(payload);
+        } else if (payload.parts) {
+            for (const part of payload.parts) {
+                if (part.parts) {
+                    // Handle nested parts (multipart/alternative)
+                    for (const subPart of part.parts) {
+                        extractFromPart(subPart);
+                    }
+                } else {
+                    extractFromPart(part);
+                }
+            }
+        }
+        
+        return result;
+    }
+
+    crossValidate(htmlResult, gptResult) {
+        // Cross-validate results from HTML parser and GPT
+        // For now, prefer GPT result if both succeeded, but use HTML confidence boost
+        const result = gptResult.data;
+        
+        // Boost confidence if both parsers agree on item count
+        if (htmlResult.items.length === gptResult.data.items.length) {
+            result.confidence = Math.min(1.0, result.confidence + 0.05);
+        }
+        
+        // Use HTML parser's high-confidence items where possible
+        if (htmlResult.confidence > gptResult.confidence) {
+            // Could implement more sophisticated merging logic here
+            console.log('HTML parser had higher confidence, considering hybrid approach');
+        }
+        
+        return result;
+    }
+
+    async saveWithFuzzyMatching(parsingResult, threadId) {
+        const result = {
+            newMaterials: 0,
+            newClients: 0,
+            newPriceEntries: 0
+        };
+
+        try {
+            // Process client with fuzzy matching
+            let clientId = null;
+            if (parsingResult.client) {
+                const clientMatch = await this.fuzzyMatcher.matchClient(
+                    parsingResult.client.name,
+                    parsingResult.client.email,
+                    parsingResult.client.email ? parsingResult.client.email.split('@')[1] : ''
+                );
+
+                if (clientMatch.matched) {
+                    clientId = clientMatch.clientId;
+                    console.log(`Matched client: "${parsingResult.client.name}" -> ${clientMatch.matchedClient?.name} (${clientMatch.confidence})`);
+                } else {
+                    // Create new client
+                    const newClient = await this.clientModel.create({
+                        name: parsingResult.client.name,
+                        email: parsingResult.client.email || '',
+                        contact: parsingResult.client.contactPerson || '',
+                        source: 'gmail'
+                    });
+                    clientId = newClient.id;
+                    result.newClients++;
+                    console.log(`Created new client: ${parsingResult.client.name}`);
+                }
+            }
+
+            // Process materials and prices with fuzzy matching
+            for (const item of parsingResult.items) {
+                let materialId = null;
+                
+                const materialMatch = await this.fuzzyMatcher.matchMaterial(item.material);
+                
+                if (materialMatch.matched) {
+                    materialId = materialMatch.materialId;
+                    console.log(`Matched material: "${item.material}" -> ${materialMatch.matchedMaterial?.name} (${materialMatch.confidence})`);
+                } else {
+                    // Create new material
+                    const newMaterial = await this.materialModel.create({
+                        name: item.material,
+                        description: '',
+                        hsnCode: item.hsnCode || null,
+                        source: 'gmail'
+                    });
+                    materialId = newMaterial.id;
+                    result.newMaterials++;
+                    console.log(`Created new material: ${item.material}`);
+                }
+
+                // Create price history entry
+                if (materialId && clientId && item.ratePerUnit > 0) {
+                    await this.priceHistoryModel.create({
+                        materialId: materialId,
+                        clientId: clientId,
+                        ratePerUnit: item.ratePerUnit,
+                        currency: item.currency || 'INR',
+                        unit: item.unit || 'MT',
+                        quantity: item.quantity || null,
+                        exWorksLocation: item.exWorks || null,
+                        quotedAt: parsingResult.metadata?.quotationDate || new Date().toISOString(),
+                        source: 'gmail',
+                        emailThreadId: threadId
+                    });
+                    result.newPriceEntries++;
+                }
+            }
+
+        } catch (error) {
+            console.error('Error in saveWithFuzzyMatching:', error);
+            throw error;
+        }
+
+        return result;
+    }
+
+    async addToReviewQueue(messageId, threadId, subject, from, extractedData, confidence, method) {
+        try {
+            await this.db.run(
+                `INSERT INTO review_queue (email_id, thread_id, subject, sender_email, extracted_data, confidence, method, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+                [messageId, threadId, subject, from, JSON.stringify(extractedData), confidence, method]
+            );
+            console.log(`Added email ${messageId} to review queue (confidence: ${confidence})`);
+        } catch (error) {
+            console.error('Error adding to review queue:', error);
+        }
+    }
+
+    async logProcessingResult(messageId, threadId, subject, from, itemsExtracted, status, method, confidence, processingTime, cost, errorMessage = null) {
+        try {
+            // Log to gmail_ingestion_log
+            await this.db.run(
+                `INSERT INTO gmail_ingestion_log 
+                 (thread_id, message_id, subject, sender_email, items_extracted, status, error_message)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [threadId, messageId, subject, from, itemsExtracted, status, errorMessage]
+            );
+
+            // Log to parsing_history for analytics
+            if (status === 'success') {
+                await this.db.run(
+                    `INSERT INTO parsing_history 
+                     (email_id, method, confidence, items_extracted, processing_time_ms, cost_usd)
+                     VALUES (?, ?, ?, ?, ?, ?)`,
+                    [messageId, method, confidence, itemsExtracted, processingTime, cost]
+                );
+            }
+        } catch (error) {
+            console.error('Error logging processing result:', error);
+        }
+    }
+
+    parseQuotationFromEmail(body, subject, from) {
+        // Basic parsing logic - in production, this would be much more sophisticated
+        const quotationData = {
+            client: this.extractClientFromEmail(from, body),
+            items: [],
+            date: new Date().toISOString()
+        };
+
+        // Look for price patterns in the email
+        const pricePatterns = [
+            /(\w+.*?)\s+(?:rs\.?|₹|inr)\s*(\d+(?:,\d+)*(?:\.\d+)?)/gi,
+            /(\w+.*?)\s+(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:rs\.?|₹|inr)/gi,
+            /(\w+.*?)\s+@\s*(?:rs\.?|₹|inr)?\s*(\d+(?:,\d+)*(?:\.\d+)?)/gi
+        ];
+
+        for (const pattern of pricePatterns) {
+            let match;
+            while ((match = pattern.exec(body)) !== null) {
+                const materialName = match[1].trim();
+                const price = parseFloat(match[2].replace(/,/g, ''));
+                
+                if (materialName.length > 2 && price > 0) {
+                    quotationData.items.push({
+                        material: { name: materialName },
+                        price: price,
+                        currency: 'INR',
+                        unit: 'MT',
+                        quantity: 1
+                    });
+                }
+            }
+        }
+
+        return quotationData;
+    }
+
+    extractClientFromEmail(from, body) {
+        // Extract client name from email address or signature
+        const emailMatch = from.match(/^(.*?)\s*<(.+?)>$/);
+        let clientName = emailMatch ? emailMatch[1].trim() : from;
+        
+        // Clean up common email prefixes
+        clientName = clientName.replace(/^(mr\.?|ms\.?|mrs\.?|dr\.?)\s+/i, '');
+        
+        return {
+            name: clientName,
+            email: emailMatch ? emailMatch[2] : from
+        };
+    }
+
+    async processClientFromEmail(clientData) {
+        const existing = await this.clientModel.findOrCreate({
+            ...clientData,
+            source: 'gmail'
+        });
+        
+        return {
+            id: existing.id,
+            isNew: existing.source === 'gmail' && !existing.id
+        };
+    }
+
+    async processMaterialFromEmail(materialData) {
+        const existing = await this.materialModel.findOrCreate({
+            ...materialData,
+            source: 'gmail'
+        });
+        
+        return {
+            id: existing.id,
+            isNew: existing.source === 'gmail' && !existing.id
+        };
+    }
+
+    startScheduledIngestion() {
+        // Run daily at 9 AM
+        cron.schedule('0 9 * * *', () => {
+            console.log('Running scheduled Gmail ingestion...');
+            this.runIngestion();
+        });
+        
+        console.log('Gmail ingestion scheduled to run daily at 9 AM');
+    }
+
+    stopScheduledIngestion() {
+        cron.destroy();
+        console.log('Gmail ingestion scheduling stopped');
+    }
+}
+
+module.exports = GmailIngestionService;

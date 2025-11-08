@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Quotation System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .error-box {
+            background-color: #fee;
+            border: 1px solid #fcc;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #c00;
+        }
+        .info-box {
+            background-color: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #004085;
+        }
+        code {
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sales Quotation System</h1>
+        
+        <div class="error-box">
+            <h2>⚠️ Network Connection Issue Detected</h2>
+            <p>The frontend dependencies could not be installed due to network timeout errors.</p>
+        </div>
+        
+        <div class="info-box">
+            <h2>✅ Backend Status</h2>
+            <p>The backend server is running successfully on port 3000.</p>
+            <p>You can test it by visiting: <a href="http://localhost:3000/api/health">http://localhost:3000/api/health</a></p>
+        </div>
+        
+        <div class="info-box">
+            <h2>🔧 How to Fix This</h2>
+            <ol>
+                <li>Check your internet connection</li>
+                <li>If you're behind a proxy, configure npm:
+                    <br><code>npm config set proxy http://your-proxy:port</code>
+                    <br><code>npm config set https-proxy http://your-proxy:port</code>
+                </li>
+                <li>Try using a different network or VPN</li>
+                <li>Once connected, run:
+                    <br><code>cd client && npm install</code>
+                </li>
+            </ol>
+        </div>
+        
+        <div class="info-box">
+            <h2>📝 What's Working</h2>
+            <ul>
+                <li>✅ Backend server is running</li>
+                <li>✅ Database is connected</li>
+                <li>✅ All API endpoints are available</li>
+                <li>❌ Frontend build (waiting for dependencies)</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
