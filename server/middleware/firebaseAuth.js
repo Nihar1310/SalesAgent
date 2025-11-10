@@ -1,8 +1,16 @@
 const firebaseAdmin = require('../services/FirebaseAdmin');
+const User = require('../models/User');
+
+// User model will be injected by the app
+let userModel = null;
+
+function setUserModel(model) {
+  userModel = model;
+}
 
 /**
  * Middleware to verify Firebase ID tokens on protected routes
- * Attaches decoded user info to req.user if valid
+ * Attaches decoded user info and role/status to req.user if valid
  */
 async function authenticateFirebaseToken(req, res, next) {
   try {
@@ -34,12 +42,43 @@ async function authenticateFirebaseToken(req, res, next) {
     // Verify the ID token
     const decodedToken = await firebaseAdmin.verifyIdToken(idToken);
     
+    // Look up user in SQLite database
+    let dbUser = null;
+    if (userModel) {
+      dbUser = await userModel.findByFirebaseUid(decodedToken.uid);
+      
+      // Check if user exists and is active
+      if (dbUser) {
+        if (dbUser.status === 'inactive') {
+          return res.status(403).json({ 
+            error: 'Forbidden',
+            message: 'Your account has been deactivated. Please contact an administrator.',
+            code: 'ACCOUNT_INACTIVE'
+          });
+        }
+        
+        if (dbUser.status === 'pending_approval') {
+          return res.status(403).json({ 
+            error: 'Forbidden',
+            message: 'Your account is pending approval. Please wait for an administrator to approve your access.',
+            code: 'ACCOUNT_PENDING'
+          });
+        }
+      }
+    }
+    
     // Attach user info to request
     req.user = {
       uid: decodedToken.uid,
       phoneNumber: decodedToken.phone_number,
       email: decodedToken.email,
-      firebase: decodedToken
+      firebase: decodedToken,
+      // Add database user info if available
+      id: dbUser?.id || null,
+      role: dbUser?.role || 'pending',
+      status: dbUser?.status || 'pending_approval',
+      displayName: dbUser?.display_name || null,
+      dbUser: dbUser
     };
 
     next();
@@ -102,6 +141,7 @@ async function optionalFirebaseAuth(req, res, next) {
 
 module.exports = {
   authenticateFirebaseToken,
-  optionalFirebaseAuth
+  optionalFirebaseAuth,
+  setUserModel
 };
 

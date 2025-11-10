@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { blockStaffEdit } = require('../middleware/roleCheck');
 
 module.exports = (clientModel) => {
     // Get all clients
@@ -28,8 +29,8 @@ module.exports = (clientModel) => {
         }
     });
 
-    // Create new client
-    router.post('/', async (req, res) => {
+    // Create new client (admin only)
+    router.post('/', blockStaffEdit, async (req, res) => {
         try {
             const { name, email, contact } = req.body;
             
@@ -55,8 +56,8 @@ module.exports = (clientModel) => {
         }
     });
 
-    // Update client
-    router.put('/:id', async (req, res) => {
+    // Update client (admin only)
+    router.put('/:id', blockStaffEdit, async (req, res) => {
         try {
             const { name, email, contact } = req.body;
             
@@ -77,8 +78,8 @@ module.exports = (clientModel) => {
         }
     });
 
-    // Delete client
-    router.delete('/:id', async (req, res) => {
+    // Delete client (admin only)
+    router.delete('/:id', blockStaffEdit, async (req, res) => {
         try {
             const deleted = await clientModel.delete(req.params.id);
             if (!deleted) {

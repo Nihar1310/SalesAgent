@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Phone, Key, AlertCircle, Loader, Sparkles } from 'lucide-react';
+import { Phone, Key, AlertCircle, Loader, Sparkles, Clock } from 'lucide-react';
+import api from '../services/api';
 
 export default function Login() {
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -9,9 +10,10 @@ export default function Login() {
   const [confirmationResult, setConfirmationResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [step, setStep] = useState('phone'); // 'phone' or 'otp'
+  const [step, setStep] = useState('phone'); // 'phone', 'otp', or 'pending'
+  const [pendingApproval, setPendingApproval] = useState(false);
   
-  const { loginWithPhone, verifyOtp } = useAuth();
+  const { loginWithPhone, verifyOtp, registerUser } = useAuth();
   const navigate = useNavigate();
 
   const handleSendOtp = async (e) => {
@@ -51,9 +53,31 @@ export default function Login() {
         throw new Error('OTP must be 6 digits');
       }
 
-      await verifyOtp(confirmationResult, otp);
-      // Auth context will update, navigate to dashboard
-      navigate('/');
+      const firebaseUser = await verifyOtp(confirmationResult, otp);
+      
+      // Register user in SQLite database
+      try {
+        const result = await registerUser();
+        
+        // Check if user is pending approval
+        if (result?.user?.status === 'pending_approval') {
+          setPendingApproval(true);
+          setStep('pending');
+          return;
+        }
+        
+        // Navigate to dashboard if approved
+        navigate('/');
+      } catch (regError) {
+        // If registration fails, still allow navigation (user might already be registered)
+        console.error('Registration error:', regError);
+        if (regError.response?.data?.code === 'ACCOUNT_PENDING') {
+          setPendingApproval(true);
+          setStep('pending');
+        } else {
+          navigate('/');
+        }
+      }
     } catch (error) {
       console.error('Error verifying OTP:', error);
       setError(error.message || 'Invalid OTP. Please try again.');
@@ -231,6 +255,51 @@ export default function Login() {
                 </button>
               </div>
             </form>
+          )}
+
+          {/* Pending Approval Step */}
+          {step === 'pending' && (
+            <div className="space-y-6 text-center">
+              <div className="flex justify-center">
+                <div className="p-4 bg-yellow-100 rounded-full">
+                  <Clock className="h-12 w-12 text-yellow-600" />
+                </div>
+              </div>
+              
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">Pending Approval</h3>
+                <p className="text-gray-600 mb-4">
+                  Your account has been created successfully!
+                </p>
+                <p className="text-gray-600">
+                  Please wait for an administrator to approve your access.
+                  You will be able to use the system once approved.
+                </p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Phone:</strong> {phoneNumber}
+                </p>
+                <p className="text-sm text-blue-800 mt-1">
+                  Contact your administrator to expedite the approval process.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setStep('phone');
+                  setPhoneNumber('');
+                  setOtp('');
+                  setConfirmationResult(null);
+                  setPendingApproval(false);
+                }}
+                className="text-sm text-gray-600 hover:text-gray-900 font-medium"
+              >
+                ← Back to login
+              </button>
+            </div>
           )}
 
           {/* reCAPTCHA container (invisible) */}

@@ -142,6 +142,21 @@ CREATE TABLE IF NOT EXISTS review_queue (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Users table for authentication and role management
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    firebase_uid TEXT NOT NULL UNIQUE,
+    phone_number TEXT NOT NULL UNIQUE,
+    display_name TEXT,
+    role TEXT NOT NULL CHECK (role IN ('super_admin', 'staff', 'pending')) DEFAULT 'pending',
+    status TEXT NOT NULL CHECK (status IN ('active', 'inactive', 'pending_approval')) DEFAULT 'pending_approval',
+    approved_by INTEGER,
+    approved_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (approved_by) REFERENCES users(id)
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_materials_normalized ON materials(normalized_name);
 CREATE INDEX IF NOT EXISTS idx_clients_normalized ON clients(normalized_name);
@@ -151,6 +166,9 @@ CREATE INDEX IF NOT EXISTS idx_gmail_thread ON gmail_ingestion_log(thread_id);
 CREATE INDEX IF NOT EXISTS idx_material_aliases_lookup ON material_aliases(alias);
 CREATE INDEX IF NOT EXISTS idx_parsing_history_method ON parsing_history(method, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_review_queue_status ON review_queue(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_users_firebase_uid ON users(firebase_uid);
+CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone_number);
+CREATE INDEX IF NOT EXISTS idx_users_role_status ON users(role, status);
 
 -- Triggers to update updated_at timestamps
 CREATE TRIGGER IF NOT EXISTS update_materials_timestamp 
@@ -169,4 +187,10 @@ CREATE TRIGGER IF NOT EXISTS update_quotes_timestamp
     AFTER UPDATE ON quotes
     BEGIN
         UPDATE quotes SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    END;
+
+CREATE TRIGGER IF NOT EXISTS update_users_timestamp 
+    AFTER UPDATE ON users
+    BEGIN
+        UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
     END;

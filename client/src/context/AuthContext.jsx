@@ -5,6 +5,7 @@ import {
   signOut as firebaseSignOut
 } from 'firebase/auth';
 import { auth } from '../firebase';
+import api from '../services/api';
 
 const AuthContext = createContext({});
 
@@ -20,6 +21,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [idToken, setIdToken] = useState(null);
+  const [dbUser, setDbUser] = useState(null); // User metadata from SQLite
 
   useEffect(() => {
     // Check if Firebase auth is available
@@ -41,11 +43,21 @@ export const AuthProvider = ({ children }) => {
             const token = await firebaseUser.getIdToken();
             setIdToken(token);
             localStorage.setItem('firebaseIdToken', token);
+            
+            // Fetch user metadata from backend
+            try {
+              const response = await api.get('/users/me');
+              setDbUser(response.data);
+            } catch (err) {
+              console.error('Error fetching user metadata:', err);
+              setDbUser(null);
+            }
           } catch (error) {
             console.error('Error getting ID token:', error);
           }
         } else {
           setIdToken(null);
+          setDbUser(null);
           localStorage.removeItem('firebaseIdToken');
         }
         
@@ -113,11 +125,30 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const registerUser = async (displayName = null) => {
+    try {
+      const response = await api.post('/users/register', { 
+        displayName: displayName || user?.phoneNumber 
+      });
+      
+      // Update dbUser with response
+      if (response.data.user) {
+        setDbUser(response.data.user);
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error registering user:', error);
+      throw error;
+    }
+  };
+
   const logout = async () => {
     if (!auth) {
       console.warn('Firebase auth not initialized, clearing local state only');
       setUser(null);
       setIdToken(null);
+      setDbUser(null);
       localStorage.removeItem('firebaseIdToken');
       return;
     }
@@ -126,6 +157,7 @@ export const AuthProvider = ({ children }) => {
       await firebaseSignOut(auth);
       setUser(null);
       setIdToken(null);
+      setDbUser(null);
       localStorage.removeItem('firebaseIdToken');
     } catch (error) {
       console.error('Error signing out:', error);
@@ -151,11 +183,20 @@ export const AuthProvider = ({ children }) => {
     user,
     idToken,
     loading,
+    dbUser,
     loginWithPhone,
     verifyOtp,
+    registerUser,
     logout,
     getIdToken,
-    isAuthenticated: !!user
+    isAuthenticated: !!user,
+    // Role helpers
+    isAdmin: dbUser?.role === 'super_admin' && dbUser?.status === 'active',
+    isStaff: dbUser?.role === 'staff' && dbUser?.status === 'active',
+    isPending: dbUser?.status === 'pending_approval',
+    isActive: dbUser?.status === 'active',
+    role: dbUser?.role || 'pending',
+    status: dbUser?.status || 'pending_approval'
   };
 
   return (

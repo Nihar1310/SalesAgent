@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { blockStaffEdit } = require('../middleware/roleCheck');
 
 module.exports = (materialModel) => {
     // Get all materials
@@ -28,8 +29,8 @@ module.exports = (materialModel) => {
         }
     });
 
-    // Create new material
-    router.post('/', async (req, res) => {
+    // Create new material (admin only)
+    router.post('/', blockStaffEdit, async (req, res) => {
         try {
             const { name, description, hsnCode } = req.body;
             
@@ -55,8 +56,8 @@ module.exports = (materialModel) => {
         }
     });
 
-    // Update material
-    router.put('/:id', async (req, res) => {
+    // Update material (admin only)
+    router.put('/:id', blockStaffEdit, async (req, res) => {
         try {
             const { name, description, hsnCode } = req.body;
             
@@ -77,8 +78,8 @@ module.exports = (materialModel) => {
         }
     });
 
-    // Delete material
-    router.delete('/:id', async (req, res) => {
+    // Delete material (admin only)
+    router.delete('/:id', blockStaffEdit, async (req, res) => {
         try {
             const deleted = await materialModel.delete(req.params.id);
             if (!deleted) {
@@ -102,8 +103,8 @@ module.exports = (materialModel) => {
         }
     });
 
-    // Merge materials - combines multiple materials into one
-    router.post('/merge', async (req, res) => {
+    // Merge materials - combines multiple materials into one (admin only)
+    router.post('/merge', blockStaffEdit, async (req, res) => {
         try {
             const { keepMaterialId, mergeMaterialIds } = req.body;
             

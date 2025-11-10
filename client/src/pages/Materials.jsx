@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, Edit2, Trash2, Package, GitMerge, X, CheckCircle } from 'lucide-react';
 import { materialsAPI } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 export default function Materials() {
+  const { isAdmin } = useAuth();
   const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -215,20 +217,24 @@ export default function Materials() {
         <div className="flex gap-2">
           {!mergeMode ? (
             <>
-              <button
-                onClick={toggleMergeMode}
-                className="glass-card px-4 py-2 rounded-xl font-medium text-purple-600 hover:bg-purple-50/50 transition-all duration-300 inline-flex items-center"
-              >
-                <GitMerge className="h-5 w-5 mr-2" />
-                Merge Duplicates
-              </button>
-              <button
-                onClick={() => setShowAddForm(true)}
-                className="btn-gradient inline-flex items-center group"
-              >
-                <Plus className="h-5 w-5 mr-2 group-hover:rotate-90 transition-transform" />
-                Add Material
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={toggleMergeMode}
+                  className="glass-card px-4 py-2 rounded-xl font-medium text-purple-600 hover:bg-purple-50/50 transition-all duration-300 inline-flex items-center"
+                >
+                  <GitMerge className="h-5 w-5 mr-2" />
+                  Merge Duplicates
+                </button>
+              )}
+              {isAdmin && (
+                <button
+                  onClick={() => setShowAddForm(true)}
+                  className="btn-gradient inline-flex items-center group"
+                >
+                  <Plus className="h-5 w-5 mr-2 group-hover:rotate-90 transition-transform" />
+                  Add Material
+                </button>
+              )}
             </>
           ) : (
             <>
@@ -342,7 +348,7 @@ export default function Materials() {
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                       Source
                     </th>
-                    {!mergeMode && (
+                    {!mergeMode && isAdmin && (
                       <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
                         Actions
                       </th>
@@ -394,7 +400,7 @@ export default function Materials() {
                           {material.source}
                         </span>
                       </td>
-                      {!mergeMode && (
+                      {!mergeMode && isAdmin && (
                         <td className="px-6 py-4 whitespace-nowrap text-right">
                           <div className="flex items-center justify-end space-x-2">
                             <button

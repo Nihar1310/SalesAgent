@@ -12,7 +12,9 @@ import {
   Menu,
   X,
   Sparkles,
-  ChevronDown
+  ChevronDown,
+  Shield,
+  UserCog
 } from 'lucide-react';
 
 const navigation = [
@@ -24,6 +26,10 @@ const navigation = [
   { name: 'Gmail Review', href: '/gmail-review', icon: Mail },
 ];
 
+const adminNavigation = [
+  { name: 'User Management', href: '/users', icon: UserCog, adminOnly: true },
+];
+
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
 }
@@ -31,7 +37,7 @@ function classNames(...classes) {
 export default function Layout({ children }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin, dbUser, role } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -99,6 +105,27 @@ export default function Layout({ children }) {
                   </Link>
                 );
               })}
+              {isAdmin && adminNavigation.map((item) => {
+                const isActive = location.pathname === item.href;
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    className={classNames(
+                      'flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300',
+                      isActive
+                        ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-lg'
+                        : 'text-purple-700 hover:bg-purple-50 hover:text-purple-800'
+                    )}
+                  >
+                    <item.icon className={classNames(
+                      'h-5 w-5 mr-2',
+                      isActive ? 'text-white' : 'text-purple-500'
+                    )} />
+                    <span>{item.name}</span>
+                  </Link>
+                );
+              })}
             </div>
 
             {/* User Menu */}
@@ -115,9 +142,12 @@ export default function Layout({ children }) {
                   </div>
                   <div className="text-left hidden xl:block">
                     <p className="text-sm font-semibold text-gray-900">
-                      {user?.phoneNumber || 'User'}
+                      {dbUser?.displayName || user?.phoneNumber || 'User'}
                     </p>
-                    <p className="text-xs text-gray-500">Active</p>
+                    <p className="text-xs text-gray-500 flex items-center">
+                      {role === 'super_admin' && <Shield className="h-3 w-3 mr-1 text-purple-600" />}
+                      {role === 'super_admin' ? 'Admin' : role === 'staff' ? 'Staff' : 'Pending'}
+                    </p>
                   </div>
                   <ChevronDown className={classNames(
                     'h-4 w-4 text-gray-500 transition-transform duration-300',
@@ -181,6 +211,29 @@ export default function Layout({ children }) {
                 );
               })}
               
+              {isAdmin && adminNavigation.map((item) => {
+                const isActive = location.pathname === item.href;
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={classNames(
+                      'flex items-center px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300',
+                      isActive
+                        ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-lg'
+                        : 'text-purple-700 hover:bg-purple-50'
+                    )}
+                  >
+                    <item.icon className={classNames(
+                      'h-5 w-5 mr-3',
+                      isActive ? 'text-white' : 'text-purple-500'
+                    )} />
+                    {item.name}
+                  </Link>
+                );
+              })}
+              
               {/* Mobile User Section */}
               <div className="pt-4 border-t border-gray-200/50">
                 <div className="flex items-center px-4 py-3 mb-2">
@@ -191,9 +244,12 @@ export default function Layout({ children }) {
                   </div>
                   <div className="ml-3">
                     <p className="text-sm font-semibold text-gray-900">
-                      {user?.phoneNumber || 'User'}
+                      {dbUser?.displayName || user?.phoneNumber || 'User'}
                     </p>
-                    <p className="text-xs text-gray-500">Active Session</p>
+                    <p className="text-xs text-gray-500 flex items-center">
+                      {role === 'super_admin' && <Shield className="h-3 w-3 mr-1 text-purple-600" />}
+                      {role === 'super_admin' ? 'Admin' : role === 'staff' ? 'Staff' : 'Pending'}
+                    </p>
                   </div>
                 </div>
                 <button

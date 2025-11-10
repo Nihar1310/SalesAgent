@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, Edit2, Trash2, Users } from 'lucide-react';
 import { clientsAPI } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 export default function Clients() {
+  const { isAdmin } = useAuth();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -158,13 +160,15 @@ export default function Clients() {
             Manage your client database
           </p>
         </div>
-        <button
-          onClick={() => setShowAddForm(true)}
-          className="btn-gradient inline-flex items-center group"
-        >
-          <Plus className="h-5 w-5 mr-2 group-hover:rotate-90 transition-transform" />
-          Add Client
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="btn-gradient inline-flex items-center group"
+          >
+            <Plus className="h-5 w-5 mr-2 group-hover:rotate-90 transition-transform" />
+            Add Client
+          </button>
+        )}
       </div>
 
       {/* Error Alert */}
@@ -223,7 +227,7 @@ export default function Clients() {
             <p className="text-gray-600 mb-6">
               {searchTerm ? 'No clients match your search.' : 'Get started by adding your first client.'}
             </p>
-            {!searchTerm && (
+            {!searchTerm && isAdmin && (
               <button
                 onClick={() => setShowAddForm(true)}
                 className="btn-gradient inline-flex items-center"
@@ -252,9 +256,11 @@ export default function Clients() {
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                       Source
                     </th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                      Actions
-                    </th>
+                    {isAdmin && (
+                      <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="bg-white/50 divide-y divide-gray-200">
@@ -290,24 +296,26 @@ export default function Clients() {
                           {client.source}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex items-center justify-end space-x-2">
-                          <button
-                            onClick={() => handleEdit(client)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Edit"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(client.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
+                      {isAdmin && (
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <div className="flex items-center justify-end space-x-2">
+                            <button
+                              onClick={() => handleEdit(client)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Edit"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(client.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -338,20 +346,22 @@ export default function Clients() {
                         </p>
                       )}
                     </div>
-                    <div className="flex items-center space-x-1 ml-2">
-                      <button
-                        onClick={() => handleEdit(client)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(client.id)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
+                    {isAdmin && (
+                      <div className="flex items-center space-x-1 ml-2">
+                        <button
+                          onClick={() => handleEdit(client)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(client.id)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center justify-end">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${

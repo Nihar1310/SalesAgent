@@ -11,6 +11,7 @@ import QuoteBuilder from './pages/QuoteBuilder';
 import Import from './pages/Import';
 import GmailReviewQueue from './pages/GmailReviewQueue';
 import GmailCallback from './pages/GmailCallback';
+import UserManagement from './pages/UserManagement';
 
 function App() {
   return (
@@ -61,6 +62,13 @@ function App() {
             <PrivateRoute>
               <Layout>
                 <GmailReviewQueue />
+              </Layout>
+            </PrivateRoute>
+          } />
+          <Route path="/users" element={
+            <PrivateRoute>
+              <Layout>
+                <UserManagement />
               </Layout>
             </PrivateRoute>
           } />

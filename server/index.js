@@ -8,6 +8,7 @@ const Database = require('./database/db');
 const Material = require('./models/Material');
 const Client = require('./models/Client');
 const PriceHistory = require('./models/PriceHistory');
+const User = require('./models/User');
 
 // Services
 const ExcelImportService = require('./services/ExcelImportService');
@@ -15,7 +16,7 @@ const GmailIngestionService = require('./services/GmailIngestionService');
 const firebaseAdmin = require('./services/FirebaseAdmin');
 
 // Middleware
-const { authenticateFirebaseToken } = require('./middleware/firebaseAuth');
+const { authenticateFirebaseToken, setUserModel } = require('./middleware/firebaseAuth');
 
 // Routes
 const materialsRoutes = require('./routes/materials');
@@ -25,6 +26,7 @@ const gmailRoutes = require('./routes/gmail');
 const quotesRoutes = require('./routes/quotes');
 const analyticsRoutes = require('./routes/analytics');
 const searchRoutes = require('./routes/search');
+const usersRoutes = require('./routes/users');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -38,7 +40,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../client/dist')));
 
 // Initialize database and models
-let db, materialModel, clientModel, priceHistoryModel, excelImportService, gmailService;
+let db, materialModel, clientModel, priceHistoryModel, userModel, excelImportService, gmailService;
 
 async function initializeApp() {
     try {
@@ -53,6 +55,10 @@ async function initializeApp() {
         materialModel = new Material(db);
         clientModel = new Client(db);
         priceHistoryModel = new PriceHistory(db);
+        userModel = new User(db);
+        
+        // Inject user model into auth middleware
+        setUserModel(userModel);
         
         // Initialize services
         excelImportService = new ExcelImportService(db, materialModel, clientModel);
@@ -121,6 +127,13 @@ app.use('/api/search', authenticateFirebaseToken, (req, res, next) => {
         return res.status(503).json({ error: 'Service not ready' });
     }
     searchRoutes(db, materialModel, clientModel, priceHistoryModel)(req, res, next);
+});
+
+app.use('/api/users', authenticateFirebaseToken, (req, res, next) => {
+    if (!userModel) {
+        return res.status(503).json({ error: 'Service not ready' });
+    }
+    usersRoutes(userModel)(req, res, next);
 });
 
 // Price history routes (protected)
