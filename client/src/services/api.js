@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { auth } from '../firebase';
 
 const API_BASE_URL = '/api';
 
@@ -8,6 +9,53 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+// Request interceptor to attach Firebase ID token
+api.interceptors.request.use(
+  async (config) => {
+    const token = localStorage.getItem('firebaseIdToken');
+    
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Response interceptor to handle 401 and refresh token
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+
+    // If 401 and we haven't already retried
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+
+      try {
+        // Try to refresh the token
+        const user = auth.currentUser;
+        if (user) {
+          const newToken = await user.getIdToken(true);
+          localStorage.setItem('firebaseIdToken', newToken);
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          return api(originalRequest);
+        }
+      } catch (refreshError) {
+        // Token refresh failed, redirect to login
+        localStorage.removeItem('firebaseIdToken');
+        window.location.href = '/login';
+        return Promise.reject(refreshError);
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 // Materials API
 export const materialsAPI = {

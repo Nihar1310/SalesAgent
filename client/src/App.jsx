@@ -1,6 +1,9 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import PrivateRoute from './components/PrivateRoute';
 import Layout from './components/Layout';
+import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Materials from './pages/Materials';
 import Clients from './pages/Clients';
@@ -11,19 +14,59 @@ import GmailCallback from './pages/GmailCallback';
 
 function App() {
   return (
-    <Router>
-      <Layout>
+    <AuthProvider>
+      <Router>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/materials" element={<Materials />} />
-          <Route path="/clients" element={<Clients />} />
-          <Route path="/quote-builder" element={<QuoteBuilder />} />
-          <Route path="/import" element={<Import />} />
-          <Route path="/gmail-review" element={<GmailReviewQueue />} />
+          {/* Public Routes */}
+          <Route path="/login" element={<Login />} />
           <Route path="/gmail/callback" element={<GmailCallback />} />
+          
+          {/* Protected Routes */}
+          <Route path="/" element={
+            <PrivateRoute>
+              <Layout>
+                <Dashboard />
+              </Layout>
+            </PrivateRoute>
+          } />
+          <Route path="/materials" element={
+            <PrivateRoute>
+              <Layout>
+                <Materials />
+              </Layout>
+            </PrivateRoute>
+          } />
+          <Route path="/clients" element={
+            <PrivateRoute>
+              <Layout>
+                <Clients />
+              </Layout>
+            </PrivateRoute>
+          } />
+          <Route path="/quote-builder" element={
+            <PrivateRoute>
+              <Layout>
+                <QuoteBuilder />
+              </Layout>
+            </PrivateRoute>
+          } />
+          <Route path="/import" element={
+            <PrivateRoute>
+              <Layout>
+                <Import />
+              </Layout>
+            </PrivateRoute>
+          } />
+          <Route path="/gmail-review" element={
+            <PrivateRoute>
+              <Layout>
+                <GmailReviewQueue />
+              </Layout>
+            </PrivateRoute>
+          } />
         </Routes>
-      </Layout>
-    </Router>
+      </Router>
+    </AuthProvider>
   );
 }
 

@@ -12,6 +12,10 @@ const PriceHistory = require('./models/PriceHistory');
 // Services
 const ExcelImportService = require('./services/ExcelImportService');
 const GmailIngestionService = require('./services/GmailIngestionService');
+const firebaseAdmin = require('./services/FirebaseAdmin');
+
+// Middleware
+const { authenticateFirebaseToken } = require('./middleware/firebaseAuth');
 
 // Routes
 const materialsRoutes = require('./routes/materials');
@@ -38,6 +42,9 @@ let db, materialModel, clientModel, priceHistoryModel, excelImportService, gmail
 
 async function initializeApp() {
     try {
+        // Initialize Firebase Admin (optional)
+        firebaseAdmin.initialize();
+        
         // Initialize database
         db = new Database();
         await db.connect();
@@ -66,58 +73,58 @@ async function initializeApp() {
     }
 }
 
-// API Routes
-app.use('/api/materials', (req, res, next) => {
+// API Routes (protected by Firebase auth)
+app.use('/api/materials', authenticateFirebaseToken, (req, res, next) => {
     if (!materialModel) {
         return res.status(503).json({ error: 'Service not ready' });
     }
     materialsRoutes(materialModel)(req, res, next);
 });
 
-app.use('/api/clients', (req, res, next) => {
+app.use('/api/clients', authenticateFirebaseToken, (req, res, next) => {
     if (!clientModel) {
         return res.status(503).json({ error: 'Service not ready' });
     }
     clientsRoutes(clientModel)(req, res, next);
 });
 
-app.use('/api/import', (req, res, next) => {
+app.use('/api/import', authenticateFirebaseToken, (req, res, next) => {
     if (!excelImportService) {
         return res.status(503).json({ error: 'Service not ready' });
     }
     importRoutes(excelImportService)(req, res, next);
 });
 
-app.use('/api/gmail', (req, res, next) => {
+app.use('/api/gmail', authenticateFirebaseToken, (req, res, next) => {
     if (!gmailService) {
         return res.status(503).json({ error: 'Service not ready' });
     }
     gmailRoutes(gmailService)(req, res, next);
 });
 
-app.use('/api/quotes', (req, res, next) => {
+app.use('/api/quotes', authenticateFirebaseToken, (req, res, next) => {
     if (!db || !materialModel || !clientModel || !priceHistoryModel) {
         return res.status(503).json({ error: 'Service not ready' });
     }
     quotesRoutes(db, materialModel, clientModel, priceHistoryModel)(req, res, next);
 });
 
-app.use('/api/analytics', (req, res, next) => {
+app.use('/api/analytics', authenticateFirebaseToken, (req, res, next) => {
     if (!db || !materialModel || !clientModel || !priceHistoryModel) {
         return res.status(503).json({ error: 'Service not ready' });
     }
     analyticsRoutes(db, materialModel, clientModel, priceHistoryModel)(req, res, next);
 });
 
-app.use('/api/search', (req, res, next) => {
+app.use('/api/search', authenticateFirebaseToken, (req, res, next) => {
     if (!db || !materialModel || !clientModel || !priceHistoryModel) {
         return res.status(503).json({ error: 'Service not ready' });
     }
     searchRoutes(db, materialModel, clientModel, priceHistoryModel)(req, res, next);
 });
 
-// Price history routes
-app.get('/api/price-history/material/:materialId', async (req, res) => {
+// Price history routes (protected)
+app.get('/api/price-history/material/:materialId', authenticateFirebaseToken, async (req, res) => {
     try {
         const { materialId } = req.params;
         const { clientId, limit = 10 } = req.query;
@@ -135,7 +142,7 @@ app.get('/api/price-history/material/:materialId', async (req, res) => {
     }
 });
 
-app.get('/api/price-history/latest/:materialId', async (req, res) => {
+app.get('/api/price-history/latest/:materialId', authenticateFirebaseToken, async (req, res) => {
     try {
         const { materialId } = req.params;
         const { clientId } = req.query;
@@ -156,7 +163,7 @@ app.get('/api/price-history/latest/:materialId', async (req, res) => {
     }
 });
 
-app.post('/api/price-history', async (req, res) => {
+app.post('/api/price-history', authenticateFirebaseToken, async (req, res) => {
     try {
         const priceData = req.body;
         const result = await priceHistoryModel.create(priceData);

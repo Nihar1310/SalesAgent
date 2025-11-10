@@ -58,13 +58,17 @@ class HTMLTableParser {
       
       // Extract client information from email metadata
       const client = this.extractClientInfo(emailMetadata);
-      
+      const quotationDate = this.normalizeDate(emailMetadata.date);
+
       return {
         success: true,
         items: items,
         client: client,
         confidence: this.calculateOverallConfidence(items, columnMap),
         method: 'html_table',
+        metadata: {
+          quotationDate
+        },
         stats: {
           totalRows: rows.length,
           extractedItems: items.length,
@@ -288,17 +292,55 @@ class HTMLTableParser {
     return normalized;
   }
 
-  extractClientInfo(emailMetadata) {
-    const { from, subject } = emailMetadata;
-    
-    // Default client info for ANUJ TRADERS emails
+  extractClientInfo(emailMetadata = {}) {
+    const { to, from } = emailMetadata;
+    const primary = this.parseAddress(to) || this.parseAddress(from);
+
+    const name = primary?.name || this.deriveNameFromEmail(primary?.email);
+
     return {
-      name: 'ANUJ TRADERS',
-      email: from || '',
-      contactPerson: 'Prashant Shukla',
+      name,
+      email: primary?.email || '',
+      contactPerson: name,
       matchedId: null,
-      isNew: false // Will be determined by fuzzy matching
+      isNew: false
     };
+  }
+
+  parseAddress(address) {
+    if (!address) return null;
+
+    const firstAddress = address.split(',')[0].trim();
+    const match = firstAddress.match(/^(.*)<(.+)>$/);
+
+    if (match) {
+      return {
+        name: match[1].replace(/"/g, '').trim(),
+        email: match[2].trim()
+      };
+    }
+
+    return {
+      name: '',
+      email: firstAddress.replace(/"/g, '').trim()
+    };
+  }
+
+  deriveNameFromEmail(email) {
+    if (!email) return '';
+    const localPart = email.split('@')[0];
+    return localPart
+      .replace(/[._-]+/g, ' ')
+      .replace(/\b\w/g, char => char.toUpperCase());
+  }
+
+  normalizeDate(dateStr) {
+    if (!dateStr) return null;
+    const parsed = new Date(dateStr);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+    return parsed.toISOString();
   }
 
   calculateItemConfidence(item) {

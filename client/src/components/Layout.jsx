@@ -1,12 +1,18 @@
-import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { 
   Home, 
   Package, 
   Users, 
   FileText, 
   Upload,
-  Mail
+  Mail,
+  LogOut,
+  Menu,
+  X,
+  Sparkles,
+  ChevronDown
 } from 'lucide-react';
 
 const navigation = [
@@ -24,50 +30,200 @@ function classNames(...classes) {
 
 export default function Layout({ children }) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 10);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="flex">
-        {/* Sidebar */}
-        <div className="flex flex-col w-64 bg-white shadow-sm">
-          <div className="flex items-center justify-center h-16 px-4 bg-primary-600">
-            <h1 className="text-xl font-bold text-white">Sales Memory</h1>
-          </div>
-          <nav className="flex-1 px-2 py-4 space-y-1">
-            {navigation.map((item) => {
-              const isActive = location.pathname === item.href;
-              return (
-                <Link
-                  key={item.name}
-                  to={item.href}
-                  className={classNames(
-                    isActive
-                      ? 'bg-primary-50 border-primary-500 text-primary-700'
-                      : 'border-transparent text-gray-600 hover:bg-gray-50 hover:text-gray-900',
-                    'group flex items-center px-2 py-2 text-sm font-medium border-l-4 rounded-r-md'
-                  )}
-                >
-                  <item.icon
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/20">
+      {/* Top Navigation Bar */}
+      <nav className={classNames(
+        "fixed top-0 left-0 right-0 z-50 transition-all duration-300",
+        scrolled ? "glass-card shadow-lg" : "bg-white/80 backdrop-blur-md"
+      )}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            {/* Logo */}
+            <div className="flex items-center space-x-3 animate-slide-up">
+              <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl shadow-lg animate-glow">
+                <Sparkles className="h-6 w-6 text-white" />
+              </div>
+              <div className="hidden sm:block">
+                <h1 className="text-xl font-bold gradient-text font-display tracking-tight">
+                  Sales Memory
+                </h1>
+              </div>
+            </div>
+
+            {/* Desktop Navigation */}
+            <div className="hidden lg:flex items-center space-x-1">
+              {navigation.map((item) => {
+                const isActive = location.pathname === item.href;
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
                     className={classNames(
-                      isActive ? 'text-primary-500' : 'text-gray-400 group-hover:text-gray-500',
-                      'mr-3 h-6 w-6'
+                      'flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300',
+                      isActive
+                        ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg'
+                        : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
                     )}
-                    aria-hidden="true"
-                  />
-                  {item.name}
-                </Link>
-              );
-            })}
-          </nav>
+                  >
+                    <item.icon className={classNames(
+                      'h-5 w-5 mr-2',
+                      isActive ? 'text-white' : 'text-gray-500'
+                    )} />
+                    <span>{item.name}</span>
+                  </Link>
+                );
+              })}
+            </div>
+
+            {/* User Menu */}
+            <div className="hidden lg:flex items-center space-x-4">
+              <div className="relative">
+                <button
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="flex items-center space-x-3 px-4 py-2 rounded-xl hover:bg-gray-100 transition-all duration-300 group"
+                >
+                  <div className="h-9 w-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
+                    <span className="text-white font-bold text-sm">
+                      {user?.phoneNumber?.slice(-2) || 'U'}
+                    </span>
+                  </div>
+                  <div className="text-left hidden xl:block">
+                    <p className="text-sm font-semibold text-gray-900">
+                      {user?.phoneNumber || 'User'}
+                    </p>
+                    <p className="text-xs text-gray-500">Active</p>
+                  </div>
+                  <ChevronDown className={classNames(
+                    'h-4 w-4 text-gray-500 transition-transform duration-300',
+                    userMenuOpen ? 'rotate-180' : ''
+                  )} />
+                </button>
+
+                {/* User Dropdown */}
+                {userMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-48 glass-card rounded-xl shadow-xl py-2 animate-slide-down">
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-red-50 hover:text-red-600 transition-colors group"
+                    >
+                      <LogOut className="h-4 w-4 mr-2 group-hover:rotate-12 transition-transform" />
+                      Sign Out
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Mobile Menu Button */}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="lg:hidden p-2 rounded-xl text-gray-700 hover:bg-blue-50 transition-colors"
+            >
+              {mobileMenuOpen ? (
+                <X className="h-6 w-6" />
+              ) : (
+                <Menu className="h-6 w-6" />
+              )}
+            </button>
+          </div>
         </div>
 
-        {/* Main content */}
-        <div className="flex-1">
-          <main className="p-6">
-            {children}
-          </main>
+        {/* Mobile Menu */}
+        {mobileMenuOpen && (
+          <div className="lg:hidden border-t border-gray-200/50 animate-slide-down">
+            <div className="px-4 py-4 space-y-2 bg-white/95 backdrop-blur-md">
+              {navigation.map((item) => {
+                const isActive = location.pathname === item.href;
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={classNames(
+                      'flex items-center px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300',
+                      isActive
+                        ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg'
+                        : 'text-gray-700 hover:bg-blue-50'
+                    )}
+                  >
+                    <item.icon className={classNames(
+                      'h-5 w-5 mr-3',
+                      isActive ? 'text-white' : 'text-gray-500'
+                    )} />
+                    {item.name}
+                  </Link>
+                );
+              })}
+              
+              {/* Mobile User Section */}
+              <div className="pt-4 border-t border-gray-200/50">
+                <div className="flex items-center px-4 py-3 mb-2">
+                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
+                    <span className="text-white font-bold text-sm">
+                      {user?.phoneNumber?.slice(-2) || 'U'}
+                    </span>
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm font-semibold text-gray-900">
+                      {user?.phoneNumber || 'User'}
+                    </p>
+                    <p className="text-xs text-gray-500">Active Session</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center justify-center px-4 py-3 glass-card rounded-xl text-sm font-medium text-gray-700 hover:text-red-600 hover:bg-red-50/50 transition-all duration-300 group"
+                >
+                  <LogOut className="h-4 w-4 mr-2 group-hover:rotate-12 transition-transform" />
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </nav>
+
+      {/* Main Content */}
+      <main className="pt-20 px-4 lg:px-8 pb-8 animate-fade-in">
+        <div className="max-w-7xl mx-auto">
+          {children}
         </div>
-      </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="mt-auto py-6 px-4 lg:px-8 border-t border-gray-200/50 bg-white/30 backdrop-blur-sm">
+        <div className="max-w-7xl mx-auto text-center text-sm text-gray-600">
+          <p className="flex items-center justify-center space-x-2">
+            <span>Made with</span>
+            <span className="text-red-500 animate-pulse">❤️</span>
+            <span>by Sales Memory Team</span>
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }

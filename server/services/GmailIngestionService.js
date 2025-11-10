@@ -28,6 +28,8 @@ class GmailIngestionService {
         this.initializeFuzzyMatcher();
 
         this.tokenPath = path.join(__dirname, '../../data/gmail-tokens.json');
+        this.maxEmailsPerRun = parseInt(process.env.GMAIL_MAX_EMAILS || '500', 10);
+        this.lookbackMonths = parseInt(process.env.GMAIL_LOOKBACK_MONTHS || '18', 10);
     }
 
     async initializeFuzzyMatcher() {
@@ -161,45 +163,57 @@ class GmailIngestionService {
             errors: []
         };
 
+        const lookbackQueryDate = this.getLookbackQueryDate();
+        const baseQuery = '(subject:(quotation OR quote OR price OR proposal) OR body:(quotation OR quote OR price))';
+        const query = lookbackQueryDate ? `${baseQuery} after:${lookbackQueryDate}` : baseQuery;
+
+        let pageToken = null;
+        let processedCount = 0;
+
         try {
-            // Search for quotation-related emails
-            const query = 'subject:(quotation OR quote OR price OR proposal) OR body:(quotation OR quote OR price)';
-            const response = await this.gmail.users.messages.list({
-                userId: 'me',
-                q: query,
-                maxResults: 50 // Limit to recent emails
-            });
+            do {
+                const response = await this.gmail.users.messages.list({
+                    userId: 'me',
+                    q: query,
+                    maxResults: 100,
+                    pageToken: pageToken || undefined
+                });
 
-            if (!response.data.messages) {
-                return result;
-            }
+                const messages = response.data.messages || [];
 
-            for (const message of response.data.messages) {
-                try {
-                    // Check if already processed
-                    const existing = await this.db.get(
-                        'SELECT id FROM gmail_ingestion_log WHERE message_id = ?',
-                        [message.id]
-                    );
-
-                    if (existing) {
-                        continue; // Skip already processed emails
+                for (const message of messages) {
+                    if (processedCount >= this.maxEmailsPerRun) {
+                        pageToken = null;
+                        break;
                     }
 
-                    const emailResult = await this.processEmail(message.id);
-                    result.processedEmails++;
-                    result.newMaterials += emailResult.newMaterials;
-                    result.newClients += emailResult.newClients;
-                    result.newPriceEntries += emailResult.newPriceEntries;
+                    try {
+                        const existing = await this.db.get(
+                            'SELECT id FROM gmail_ingestion_log WHERE message_id = ?',
+                            [message.id]
+                        );
 
-                } catch (error) {
-                    console.error(`Error processing email ${message.id}:`, error);
-                    result.errors.push({
-                        messageId: message.id,
-                        error: error.message
-                    });
+                        if (existing) {
+                            continue;
+                        }
+
+                        const emailResult = await this.processEmail(message.id);
+                        processedCount++;
+                        result.processedEmails++;
+                        result.newMaterials += emailResult.newMaterials;
+                        result.newClients += emailResult.newClients;
+                        result.newPriceEntries += emailResult.newPriceEntries;
+                    } catch (error) {
+                        console.error(`Error processing email ${message.id}:`, error);
+                        result.errors.push({
+                            messageId: message.id,
+                            error: error.message
+                        });
+                    }
                 }
-            }
+
+                pageToken = response.data.nextPageToken;
+            } while (pageToken);
 
         } catch (error) {
             result.success = false;
@@ -207,6 +221,29 @@ class GmailIngestionService {
         }
 
         return result;
+    }
+
+    getLookbackQueryDate() {
+        if (!this.lookbackMonths || this.lookbackMonths <= 0) {
+            return null;
+        }
+
+        const lookbackDate = new Date();
+        lookbackDate.setMonth(lookbackDate.getMonth() - this.lookbackMonths);
+        return this.formatQueryDate(lookbackDate);
+    }
+
+    formatQueryDate(date) {
+        return date.toISOString().split('T')[0].replace(/-/g, '/');
+    }
+
+    normalizeEmailDate(dateStr) {
+        if (!dateStr) return null;
+        const parsed = new Date(dateStr);
+        if (Number.isNaN(parsed.getTime())) {
+            return null;
+        }
+        return parsed.toISOString();
     }
 
     async processEmail(messageId) {
@@ -231,6 +268,9 @@ class GmailIngestionService {
             const headers = message.data.payload.headers;
             const subject = headers.find(h => h.name === 'Subject')?.value || '';
             const from = headers.find(h => h.name === 'From')?.value || '';
+            const to = headers.find(h => h.name === 'To')?.value || '';
+            const rawDate = headers.find(h => h.name === 'Date')?.value || '';
+            const sentAt = this.normalizeEmailDate(rawDate);
             const threadId = message.data.threadId;
 
             // Extract email body (both HTML and plain text)
@@ -240,6 +280,9 @@ class GmailIngestionService {
             const emailData = {
                 subject,
                 from,
+                to,
+                date: rawDate,
+                sentAt,
                 body: emailBody.html || emailBody.plain,
                 existingMaterials: await this.materialModel.getAll(),
                 existingClients: await this.clientModel.getAll()
@@ -251,7 +294,12 @@ class GmailIngestionService {
             // 1. Try HTML table parser first (fast and cost-effective)
             if (emailBody.html) {
                 console.log(`Trying HTML table parser for email ${messageId}`);
-                const htmlResult = this.htmlParser.parseQuotationTable(emailBody.html, { subject, from });
+                const htmlResult = this.htmlParser.parseQuotationTable(emailBody.html, {
+                    subject,
+                    from,
+                    to,
+                    date: rawDate
+                });
                 
                 if (htmlResult.success && htmlResult.confidence >= 0.95) {
                     console.log(`HTML parser succeeded with confidence ${htmlResult.confidence}`);
@@ -286,8 +334,18 @@ class GmailIngestionService {
                 return result;
             }
 
+            parsingResult.metadata = parsingResult.metadata || {};
+            if (!parsingResult.metadata.quotationDate && sentAt) {
+                parsingResult.metadata.quotationDate = sentAt;
+            }
+            parsingResult.metadata.emailDate = parsingResult.metadata.emailDate || sentAt || null;
+            parsingResult.client = parsingResult.client || {};
+            if (!parsingResult.client.email && to) {
+                parsingResult.client.email = to;
+            }
+
             // 4. Apply fuzzy matching to materials and clients
-            const processedData = await this.saveWithFuzzyMatching(parsingResult, threadId);
+            const processedData = await this.saveWithFuzzyMatching(parsingResult, threadId, parsingResult.metadata?.quotationDate || sentAt);
             
             result.newMaterials = processedData.newMaterials;
             result.newClients = processedData.newClients;
@@ -369,11 +427,29 @@ class GmailIngestionService {
             // Could implement more sophisticated merging logic here
             console.log('HTML parser had higher confidence, considering hybrid approach');
         }
+
+        result.metadata = result.metadata || {};
+        result.client = result.client || {};
+        if (htmlResult.metadata) {
+            if (!result.metadata.quotationDate && htmlResult.metadata.quotationDate) {
+                result.metadata.quotationDate = htmlResult.metadata.quotationDate;
+            }
+            if (!result.metadata.emailDate && htmlResult.metadata.emailDate) {
+                result.metadata.emailDate = htmlResult.metadata.emailDate;
+            }
+        }
+
+        if (!result.client?.email && htmlResult.client?.email) {
+            result.client.email = htmlResult.client.email;
+        }
+        if (!result.client?.name && htmlResult.client?.name) {
+            result.client.name = htmlResult.client.name;
+        }
         
         return result;
     }
 
-    async saveWithFuzzyMatching(parsingResult, threadId) {
+    async saveWithFuzzyMatching(parsingResult, threadId, emailDate = null) {
         const result = {
             newMaterials: 0,
             newClients: 0,
@@ -466,6 +542,14 @@ class GmailIngestionService {
 
                 // Create price history entry
                 if (materialId && clientId && item.ratePerUnit > 0) {
+                    const itemQuotedAt = this.normalizeEmailDate(item.quotedAt);
+                    const quotedAt =
+                        itemQuotedAt ||
+                        parsingResult.metadata?.quotationDate ||
+                        emailDate ||
+                        parsingResult.metadata?.emailDate ||
+                        new Date().toISOString();
+
                     await this.priceHistoryModel.create({
                         materialId: materialId,
                         clientId: clientId,
@@ -474,7 +558,7 @@ class GmailIngestionService {
                         unit: item.unit || 'MT',
                         quantity: item.quantity || null,
                         exWorksLocation: item.exWorks || null,
-                        quotedAt: parsingResult.metadata?.quotationDate || new Date().toISOString(),
+                        quotedAt,
                         source: 'gmail',
                         emailThreadId: threadId
                     });

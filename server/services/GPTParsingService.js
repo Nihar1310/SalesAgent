@@ -24,7 +24,7 @@ class GPTParsingService {
   }
 
   async parseQuotationEmail(emailData) {
-    const { subject, from, body, existingMaterials, existingClients } = emailData;
+    const { subject, from, to, date, sentAt, body, existingMaterials, existingClients } = emailData;
     
     // Return error if OpenAI is not enabled
     if (!this.enabled || !this.openai) {
@@ -43,7 +43,7 @@ class GPTParsingService {
       const materialsList = existingMaterials.slice(0, 50).map(m => m.name).join(', ');
       const clientsList = existingClients.slice(0, 30).map(c => c.name).join(', ');
       
-      const prompt = this.buildPrompt(subject, from, body, materialsList, clientsList);
+      const prompt = this.buildPrompt(subject, from, to, date, body, materialsList, clientsList);
       
       const response = await this.openai.chat.completions.create({
         model: this.model,
@@ -69,9 +69,11 @@ class GPTParsingService {
       this.stats.totalTokens += response.usage.total_tokens;
       this.stats.totalCost += this.calculateCost(response.usage);
       
+      const fallbackDate = sentAt || this.normalizeDate(date);
+
       return {
         success: true,
-        data: this.normalizeGPTOutput(result),
+        data: this.normalizeGPTOutput(result, fallbackDate),
         tokensUsed: response.usage.total_tokens,
         cost: this.calculateCost(response.usage),
         confidence: result.confidence || 0.95,
@@ -160,12 +162,14 @@ OUTPUT FORMAT (JSON):
 }`;
   }
 
-  buildPrompt(subject, from, body, materialsList, clientsList) {
+  buildPrompt(subject, from, to, date, body, materialsList, clientsList) {
     return `EXTRACT QUOTATION DATA FROM THIS ANUJ TRADERS EMAIL:
 
 ===== EMAIL METADATA =====
 Subject: ${subject}
 From: ${from}
+To: ${to}
+Date: ${date}
 
 ===== EMAIL BODY =====
 ${body}
@@ -179,7 +183,7 @@ ${clientsList}
 ===== YOUR TASK =====
 1. Extract ALL quotation items from the HTML table (material + price + quantity + unit + HSN + Ex Works)
 2. Match materials to existing database entries using fuzzy matching
-3. Identify the client (ANUJ TRADERS) and contact person (Prashant Shukla)
+3. Identify the client company/person using the TO header above. Use the TO recipient as the default client unless the email explicitly specifies a different recipient.
 4. Extract all pricing details and specifications
 5. Include HSN codes and Ex Works locations
 6. Extract terms from email footer (GST, Payment, Delivery, Freight)
@@ -189,7 +193,18 @@ ${clientsList}
 EXTRACT NOW:`;
   }
 
-  normalizeGPTOutput(gptResult) {
+  normalizeGPTOutput(gptResult, fallbackDate) {
+    const metadata = { ...(gptResult.metadata || {}) };
+    const normalizedMetadataDate = this.normalizeDate(metadata.quotationDate);
+    const normalizedFallbackDate = this.normalizeDate(fallbackDate);
+    const quotationDate = normalizedMetadataDate || normalizedFallbackDate || null;
+    if (quotationDate) {
+      metadata.quotationDate = quotationDate;
+      metadata.emailDate = metadata.emailDate || quotationDate;
+    } else {
+      metadata.quotationDate = null;
+    }
+
     return {
       confidence: gptResult.confidence || 0.9,
       client: {
@@ -218,8 +233,15 @@ EXTRACT NOW:`;
         delivery: 'As per your schedule',
         freight: 'Extra at actual'
       },
-      metadata: gptResult.metadata || {}
+      metadata
     };
+  }
+
+  normalizeDate(dateValue) {
+    if (!dateValue) return null;
+    const parsed = new Date(dateValue);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString();
   }
 
   calculateCost(usage) {
