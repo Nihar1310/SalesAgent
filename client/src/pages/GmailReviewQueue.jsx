@@ -12,8 +12,10 @@ import {
   Eye,
   ThumbsUp,
   ThumbsDown,
-  Save
+  Save,
+  Inbox
 } from 'lucide-react';
+import { gmailAPI } from '../services/api';
 
 const GmailReviewQueue = () => {
   const [reviewItems, setReviewItems] = useState([]);
@@ -23,6 +25,8 @@ const GmailReviewQueue = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [processing, setProcessing] = useState(false);
   const [corrections, setCorrections] = useState({});
+  const [ingesting, setIngesting] = useState(false);
+  const [ingestResult, setIngestResult] = useState(null);
 
   useEffect(() => {
     fetchReviewItems();
@@ -66,6 +70,28 @@ const GmailReviewQueue = () => {
       console.error('Error fetching review items:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleIngest = async () => {
+    try {
+      setIngesting(true);
+      setIngestResult(null);
+      const response = await gmailAPI.ingest();
+      setIngestResult(response.data);
+      
+      // Refresh review items after ingestion
+      setTimeout(() => {
+        fetchReviewItems();
+      }, 1000);
+    } catch (error) {
+      console.error('Error ingesting emails:', error);
+      setIngestResult({ 
+        success: false, 
+        error: error.response?.data?.error || 'Failed to ingest emails' 
+      });
+    } finally {
+      setIngesting(false);
     }
   };
 
@@ -233,8 +259,55 @@ const GmailReviewQueue = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Gmail Review Queue</h1>
-          <p className="text-gray-600">Review and approve low-confidence email extractions</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">Gmail Review Queue</h1>
+              <p className="text-gray-600">Review and approve low-confidence email extractions</p>
+            </div>
+            <button
+              onClick={handleIngest}
+              disabled={ingesting}
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-lg hover:from-green-700 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-lg transition-all"
+            >
+              <Inbox className={`h-5 w-5 ${ingesting ? 'animate-pulse' : ''}`} />
+              {ingesting ? 'Ingesting...' : 'Ingest Emails'}
+            </button>
+          </div>
+
+          {/* Ingest Result */}
+          {ingestResult && (
+            <div className={`mt-4 p-4 rounded-lg border ${ingestResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+              <div className="flex items-start gap-3">
+                {ingestResult.success ? (
+                  <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-red-600 mt-0.5" />
+                )}
+                <div className="flex-1">
+                  <h3 className={`font-semibold ${ingestResult.success ? 'text-green-900' : 'text-red-900'}`}>
+                    {ingestResult.success ? 'Ingestion Complete!' : 'Ingestion Failed'}
+                  </h3>
+                  {ingestResult.success ? (
+                    <div className="mt-2 text-sm text-green-800 space-y-1">
+                      <p>✓ Processed <strong>{ingestResult.processedEmails}</strong> emails</p>
+                      <p>✓ New materials: <strong>{ingestResult.newMaterials}</strong> | New clients: <strong>{ingestResult.newClients}</strong> | New prices: <strong>{ingestResult.newPriceEntries}</strong></p>
+                      {ingestResult.errors && ingestResult.errors.length > 0 && (
+                        <p className="text-yellow-700">⚠️ {ingestResult.errors.length} errors occurred</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-sm text-red-700">{ingestResult.error}</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => setIngestResult(null)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XCircle className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Filters and Search */}
