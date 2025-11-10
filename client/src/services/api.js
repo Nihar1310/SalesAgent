@@ -214,6 +214,28 @@ export const gmailAPI = {
     api.post(`/gmail/review-queue/${id}/correct`, { corrections }),
 };
 
+// Users API
+export const usersAPI = {
+  getAll: () => 
+    api.get('/users'),
+  getMe: () => 
+    api.get('/users/me'),
+  register: (displayName) => 
+    api.post('/users/register', { displayName }),
+  getPending: () => 
+    api.get('/users/pending'),
+  approve: (id, role = 'staff') => 
+    api.put(`/users/${id}/approve`, { role }),
+  updateRole: (id, role) => 
+    api.put(`/users/${id}/role`, { role }),
+  updateStatus: (id, status) => 
+    api.put(`/users/${id}/status`, { status }),
+  updateDisplayName: (id, displayName) => 
+    api.put(`/users/${id}/display-name`, { displayName }),
+  delete: (id) => 
+    api.delete(`/users/${id}`),
+};
+
 // Health check
 export const healthAPI = {
   check: () => api.get('/health'),

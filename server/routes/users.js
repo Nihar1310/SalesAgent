@@ -215,6 +215,35 @@ module.exports = (userModel) => {
         }
     });
 
+    // Update display name (any user can update their own)
+    router.put('/:id/display-name', requireAdminOrSelf(), async (req, res) => {
+        try {
+            const userId = parseInt(req.params.id);
+            const { displayName } = req.body;
+
+            if (!displayName || displayName.trim() === '') {
+                return res.status(400).json({ error: 'Display name cannot be empty' });
+            }
+
+            const user = await userModel.update(userId, { displayName: displayName.trim() });
+
+            if (!user) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+
+            res.json({
+                message: 'Display name updated successfully',
+                user: {
+                    id: user.id,
+                    displayName: user.display_name
+                }
+            });
+        } catch (error) {
+            console.error('Error updating display name:', error);
+            res.status(500).json({ error: 'Failed to update display name' });
+        }
+    });
+
     // Delete user (admin only)
     router.delete('/:id', requireAdmin, async (req, res) => {
         try {

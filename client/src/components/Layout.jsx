@@ -14,7 +14,9 @@ import {
   Sparkles,
   ChevronDown,
   Shield,
-  UserCog
+  UserCog,
+  Edit3,
+  Check
 } from 'lucide-react';
 
 const navigation = [
@@ -37,10 +39,13 @@ function classNames(...classes) {
 export default function Layout({ children }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout, isAdmin, dbUser, role } = useAuth();
+  const { user, logout, isAdmin, dbUser, role, updateDisplayName } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [newDisplayName, setNewDisplayName] = useState('');
+  const [savingName, setSavingName] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -57,6 +62,27 @@ export default function Layout({ children }) {
     } catch (error) {
       console.error('Logout failed:', error);
     }
+  };
+
+  const handleSaveDisplayName = async () => {
+    if (!newDisplayName.trim()) return;
+    
+    try {
+      setSavingName(true);
+      await updateDisplayName(newDisplayName.trim());
+      setEditingName(false);
+      setUserMenuOpen(false);
+    } catch (error) {
+      console.error('Failed to update display name:', error);
+      alert('Failed to update display name');
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const startEditName = () => {
+    setNewDisplayName(dbUser?.displayName || user?.phoneNumber || '');
+    setEditingName(true);
   };
 
   return (
@@ -157,10 +183,58 @@ export default function Layout({ children }) {
 
                 {/* User Dropdown */}
                 {userMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-48 glass-card rounded-xl shadow-xl py-2 animate-slide-down">
+                  <div className="absolute right-0 mt-2 w-72 glass-card rounded-xl shadow-xl py-3 animate-slide-down">
+                    {/* Display Name Editor */}
+                    <div className="px-4 py-3 border-b border-gray-200">
+                      <p className="text-xs text-gray-500 mb-2">Display Name</p>
+                      {editingName ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={newDisplayName}
+                            onChange={(e) => setNewDisplayName(e.target.value)}
+                            className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            placeholder="Your name"
+                            autoFocus
+                            onKeyPress={(e) => e.key === 'Enter' && handleSaveDisplayName()}
+                          />
+                          <button
+                            onClick={handleSaveDisplayName}
+                            disabled={savingName || !newDisplayName.trim()}
+                            className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            {savingName ? (
+                              <div className="spinner h-4 w-4"></div>
+                            ) : (
+                              <Check className="h-4 w-4" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setEditingName(false)}
+                            disabled={savingName}
+                            className="p-1.5 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between group">
+                          <p className="text-sm font-semibold text-gray-900">
+                            {dbUser?.displayName || user?.phoneNumber || 'Not set'}
+                          </p>
+                          <button
+                            onClick={startEditName}
+                            className="p-1.5 text-blue-600 opacity-0 group-hover:opacity-100 hover:bg-blue-50 rounded-lg transition-all"
+                          >
+                            <Edit3 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
                     <button
                       onClick={handleLogout}
-                      className="w-full flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-red-50 hover:text-red-600 transition-colors group"
+                      className="w-full flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-red-50 hover:text-red-600 transition-colors group mt-1"
                     >
                       <LogOut className="h-4 w-4 mr-2 group-hover:rotate-12 transition-transform" />
                       Sign Out

@@ -143,6 +143,29 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const updateDisplayName = async (displayName) => {
+    if (!dbUser?.id) {
+      throw new Error('User not found');
+    }
+
+    try {
+      const response = await api.put(`/users/${dbUser.id}/display-name`, { displayName });
+      
+      // Update local dbUser state
+      if (response.data.user) {
+        setDbUser(prev => ({
+          ...prev,
+          displayName: response.data.user.displayName
+        }));
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error updating display name:', error);
+      throw error;
+    }
+  };
+
   const logout = async () => {
     if (!auth) {
       console.warn('Firebase auth not initialized, clearing local state only');
@@ -187,6 +210,7 @@ export const AuthProvider = ({ children }) => {
     loginWithPhone,
     verifyOtp,
     registerUser,
+    updateDisplayName,
     logout,
     getIdToken,
     isAuthenticated: !!user,
