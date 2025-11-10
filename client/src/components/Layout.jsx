@@ -63,16 +63,18 @@ export default function Layout({ children }) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
-            <div className="flex items-center space-x-3 animate-slide-up">
-              <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl shadow-lg animate-glow">
-                <Sparkles className="h-6 w-6 text-white" />
-              </div>
+            <Link to="/" className="flex items-center space-x-2 sm:space-x-3 animate-slide-up group">
+              <img 
+                src="/assets/logo.png" 
+                alt="Sales Memory Logo" 
+                className="h-11 w-11 sm:h-12 sm:w-12 object-contain transition-transform duration-300 group-hover:scale-105"
+              />
               <div className="hidden sm:block">
-                <h1 className="text-xl font-bold gradient-text font-display tracking-tight">
+                <h1 className="text-lg sm:text-xl font-bold gradient-text font-display tracking-tight group-hover:text-blue-600 transition-colors">
                   Sales Memory
                 </h1>
               </div>
-            </div>
+            </Link>
 
             {/* Desktop Navigation */}
             <div className="hidden lg:flex items-center space-x-1">
