@@ -102,5 +102,58 @@ module.exports = (materialModel) => {
         }
     });
 
+    // Merge materials - combines multiple materials into one
+    router.post('/merge', async (req, res) => {
+        try {
+            const { keepMaterialId, mergeMaterialIds } = req.body;
+            
+            if (!keepMaterialId || !mergeMaterialIds || !Array.isArray(mergeMaterialIds) || mergeMaterialIds.length === 0) {
+                return res.status(400).json({ error: 'keepMaterialId and mergeMaterialIds array are required' });
+            }
+
+            // Verify all materials exist
+            const keepMaterial = await materialModel.findById(keepMaterialId);
+            if (!keepMaterial) {
+                return res.status(404).json({ error: 'Material to keep not found' });
+            }
+
+            // Get database instance from model
+            const db = materialModel.db;
+
+            // Start transaction
+            await db.run('BEGIN TRANSACTION');
+
+            try {
+                // For each material to merge, update all price_history entries
+                for (const mergeId of mergeMaterialIds) {
+                    if (mergeId === keepMaterialId) continue; // Skip if same as keep
+
+                    // Update price_history to point to kept material
+                    await db.run(
+                        'UPDATE price_history SET material_id = ? WHERE material_id = ?',
+                        [keepMaterialId, mergeId]
+                    );
+
+                    // Delete the merged material
+                    await db.run('DELETE FROM materials WHERE id = ?', [mergeId]);
+                }
+
+                await db.run('COMMIT');
+
+                res.json({ 
+                    success: true, 
+                    message: `Successfully merged ${mergeMaterialIds.length} material(s) into ${keepMaterial.name}`,
+                    mergedCount: mergeMaterialIds.length
+                });
+            } catch (error) {
+                await db.run('ROLLBACK');
+                throw error;
+            }
+        } catch (error) {
+            console.error('Error merging materials:', error);
+            res.status(500).json({ error: 'Failed to merge materials: ' + error.message });
+        }
+    });
+
     return router;
 };

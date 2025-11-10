@@ -98,7 +98,7 @@ class FuzzyMatchingService {
     // 4. Apply business logic for material matching
     const bestMatch = this.selectBestMaterialMatch(candidates, extractedName, options);
     
-    if (bestMatch && bestMatch.confidence >= (options.threshold || 0.85)) {
+    if (bestMatch && bestMatch.confidence >= (options.threshold || 0.75)) {
       return {
         materialId: bestMatch.material.id,
         confidence: bestMatch.confidence,
@@ -186,7 +186,7 @@ class FuzzyMatchingService {
     
     const bestMatch = this.selectBestClientMatch(candidates, name, options);
     
-    if (bestMatch && bestMatch.confidence >= (options.threshold || 0.85)) {
+    if (bestMatch && bestMatch.confidence >= (options.threshold || 0.75)) {
       return {
         clientId: bestMatch.client.id,
         confidence: bestMatch.confidence,
@@ -216,15 +216,29 @@ class FuzzyMatchingService {
     return name
       .toUpperCase()
       .trim()
-      // Remove extra whitespace
-      .replace(/\s+/g, ' ')
-      // Remove common prefixes/suffixes that might vary
-      .replace(/^(CALDERYS\s+MAKE\s+)/i, 'CALDERYS ')
+      // Remove packaging details in parentheses (BAG, KG, DRUM, BARREL, etc.)
+      .replace(/\([^)]*(?:BAG|BAGS|KG|KGS|KILOGRAM|DRUM|DRUMS|BARREL|BARRELS|PACK|PACKS|PKG|PACKET|PACKETS|TON|TONS|MT|MTS|LITRE|LITRES|LITER|LITERS|L)[^)]*\)/gi, '')
+      // Remove specifications and quality grades in parentheses
+      .replace(/\((?:REGULAR|SUPREME|STANDARD|PREMIUM|GRADE|QUALITY|TYPE|CLASS|CATEGORY)[^)]*\)/gi, '')
+      // Remove "AS PER..." clauses
+      .replace(/\(AS\s+PER[^)]*\)/gi, '')
+      // Remove "SPECIFICATION..." clauses
+      .replace(/\(SPECIFICATION[^)]*\)/gi, '')
+      // Remove empty parentheses left over
+      .replace(/\(\s*\)/g, '')
+      // Normalize "CALDERYS MAKE" to just "CALDERYS"
+      .replace(/^CALDERYS\s+MAKE\s+/i, 'CALDERYS ')
+      // Remove standalone "MAKE" prefix
+      .replace(/^MAKE\s+/i, '')
+      // Remove "A BAG OF", "A DRUM OF", etc. phrases
+      .replace(/\b(A|AN)\s+(BAG|DRUM|BARREL|PACK|PACKET)\s+OF\s+/gi, '')
       // Normalize percentage formats
       .replace(/(\d+)\s*%\s*-\s*(\d+)\s*%/g, '$1%-$2%')
       // Normalize dimensions
       .replace(/(\d+)\s*[xX×]\s*(\d+)\s*[xX×]\s*(\d+)/g, '$1X$2X$3')
-      // Remove extra punctuation
+      // Remove extra whitespace
+      .replace(/\s+/g, ' ')
+      // Remove extra punctuation but keep % and -
       .replace(/[^\w\s%-]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();

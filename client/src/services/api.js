@@ -71,6 +71,8 @@ export const materialsAPI = {
     api.delete(`/materials/${id}`),
   search: (query) => 
     api.get(`/materials/search/${encodeURIComponent(query)}`),
+  merge: (keepMaterialId, mergeMaterialIds) => 
+    api.post('/materials/merge', { keepMaterialId, mergeMaterialIds }),
 };
 
 // Clients API

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Edit2, Trash2, Package } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Package, GitMerge, X, CheckCircle } from 'lucide-react';
 import { materialsAPI } from '../services/api';
 
 export default function Materials() {
@@ -9,6 +9,11 @@ export default function Materials() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState(null);
+  const [mergeMode, setMergeMode] = useState(false);
+  const [selectedMaterials, setSelectedMaterials] = useState([]);
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [keepMaterialId, setKeepMaterialId] = useState(null);
+  const [merging, setMerging] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -72,6 +77,56 @@ export default function Materials() {
     } catch (error) {
       console.error('Error deleting material:', error);
       setError('Failed to delete material');
+    }
+  };
+
+  const toggleMergeMode = () => {
+    setMergeMode(!mergeMode);
+    setSelectedMaterials([]);
+    setError(null);
+  };
+
+  const toggleMaterialSelection = (materialId) => {
+    setSelectedMaterials(prev => 
+      prev.includes(materialId)
+        ? prev.filter(id => id !== materialId)
+        : [...prev, materialId]
+    );
+  };
+
+  const handleMergeClick = () => {
+    if (selectedMaterials.length < 2) {
+      setError('Please select at least 2 materials to merge');
+      return;
+    }
+    setKeepMaterialId(selectedMaterials[0]);
+    setShowMergeModal(true);
+  };
+
+  const handleMergeConfirm = async () => {
+    if (!keepMaterialId) {
+      setError('Please select which material to keep');
+      return;
+    }
+
+    const mergeMaterialIds = selectedMaterials.filter(id => id !== keepMaterialId);
+
+    try {
+      setMerging(true);
+      setError(null);
+      await materialsAPI.merge(keepMaterialId, mergeMaterialIds);
+      
+      setShowMergeModal(false);
+      setMergeMode(false);
+      setSelectedMaterials([]);
+      setKeepMaterialId(null);
+      
+      loadMaterials();
+    } catch (error) {
+      console.error('Error merging materials:', error);
+      setError(error.response?.data?.error || 'Failed to merge materials');
+    } finally {
+      setMerging(false);
     }
   };
 
@@ -157,13 +212,44 @@ export default function Materials() {
             Manage your materials catalog
           </p>
         </div>
-        <button
-          onClick={() => setShowAddForm(true)}
-          className="btn-gradient inline-flex items-center group"
-        >
-          <Plus className="h-5 w-5 mr-2 group-hover:rotate-90 transition-transform" />
-          Add Material
-        </button>
+        <div className="flex gap-2">
+          {!mergeMode ? (
+            <>
+              <button
+                onClick={toggleMergeMode}
+                className="glass-card px-4 py-2 rounded-xl font-medium text-purple-600 hover:bg-purple-50/50 transition-all duration-300 inline-flex items-center"
+              >
+                <GitMerge className="h-5 w-5 mr-2" />
+                Merge Duplicates
+              </button>
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="btn-gradient inline-flex items-center group"
+              >
+                <Plus className="h-5 w-5 mr-2 group-hover:rotate-90 transition-transform" />
+                Add Material
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={handleMergeClick}
+                disabled={selectedMaterials.length < 2}
+                className="btn-gradient inline-flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <GitMerge className="h-5 w-5 mr-2" />
+                Merge Selected ({selectedMaterials.length})
+              </button>
+              <button
+                onClick={toggleMergeMode}
+                className="glass-card px-4 py-2 rounded-xl font-medium text-red-600 hover:bg-red-50/50 transition-all duration-300 inline-flex items-center"
+              >
+                <X className="h-5 w-5 mr-2" />
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Error Alert */}
@@ -239,6 +325,11 @@ export default function Materials() {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gradient-to-r from-gray-50 to-blue-50/30">
                   <tr>
+                    {mergeMode && (
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                        Select
+                      </th>
+                    )}
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                       Name
                     </th>
@@ -251,18 +342,32 @@ export default function Materials() {
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                       Source
                     </th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                      Actions
-                    </th>
+                    {!mergeMode && (
+                      <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="bg-white/50 divide-y divide-gray-200">
                   {filteredMaterials.map((material, index) => (
                     <tr 
                       key={material.id} 
-                      className="table-row animate-fade-in"
+                      className={`table-row animate-fade-in ${mergeMode ? 'cursor-pointer hover:bg-purple-50/30' : ''} ${selectedMaterials.includes(material.id) ? 'bg-purple-50/50' : ''}`}
                       style={{ animationDelay: `${index * 0.05}s` }}
+                      onClick={() => mergeMode && toggleMaterialSelection(material.id)}
                     >
+                      {mergeMode && (
+                        <td className="px-6 py-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedMaterials.includes(material.id)}
+                            onChange={() => toggleMaterialSelection(material.id)}
+                            className="h-5 w-5 text-purple-600 focus:ring-purple-500 border-gray-300 rounded cursor-pointer"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </td>
+                      )}
                       <td className="px-6 py-4">
                         <div className="text-sm font-semibold text-gray-900">
                           {material.name}
@@ -289,24 +394,32 @@ export default function Materials() {
                           {material.source}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex items-center justify-end space-x-2">
-                          <button
-                            onClick={() => handleEdit(material)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Edit"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(material.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
+                      {!mergeMode && (
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <div className="flex items-center justify-end space-x-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEdit(material);
+                              }}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Edit"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(material.id);
+                              }}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -367,6 +480,122 @@ export default function Materials() {
           </>
         )}
       </div>
+
+      {/* Merge Confirmation Modal */}
+      {showMergeModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="glass-card max-w-2xl w-full p-6 animate-scale-up">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold gradient-text flex items-center">
+                <GitMerge className="h-6 w-6 mr-2" />
+                Merge Materials
+              </h3>
+              <button
+                onClick={() => setShowMergeModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                disabled={merging}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-6">
+              <p className="text-gray-600 mb-4">
+                Select which material to keep. All price history from the other materials will be merged into this one, 
+                and the duplicate materials will be deleted.
+              </p>
+              
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-yellow-800">
+                  <strong>Warning:</strong> This action cannot be undone. {selectedMaterials.length - 1} material(s) will be deleted.
+                </p>
+              </div>
+
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {selectedMaterials.map(materialId => {
+                  const material = materials.find(m => m.id === materialId);
+                  if (!material) return null;
+                  
+                  return (
+                    <label
+                      key={materialId}
+                      className={`flex items-start p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                        keepMaterialId === materialId
+                          ? 'border-purple-500 bg-purple-50/50'
+                          : 'border-gray-200 hover:border-purple-300 bg-white'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="keepMaterial"
+                        value={materialId}
+                        checked={keepMaterialId === materialId}
+                        onChange={() => setKeepMaterialId(materialId)}
+                        className="mt-1 h-5 w-5 text-purple-600 focus:ring-purple-500"
+                        disabled={merging}
+                      />
+                      <div className="ml-3 flex-1">
+                        <div className="font-semibold text-gray-900 flex items-center">
+                          {material.name}
+                          {keepMaterialId === materialId && (
+                            <CheckCircle className="h-5 w-5 ml-2 text-purple-600" />
+                          )}
+                        </div>
+                        {material.description && (
+                          <p className="text-sm text-gray-600 mt-1">{material.description}</p>
+                        )}
+                        <div className="flex items-center gap-2 mt-2">
+                          {material.hsn_code && (
+                            <span className="text-xs bg-gray-100 px-2 py-1 rounded">
+                              HSN: {material.hsn_code}
+                            </span>
+                          )}
+                          <span className={`text-xs px-2 py-1 rounded ${
+                            material.source === 'master' 
+                              ? 'bg-blue-100 text-blue-800'
+                              : material.source === 'gmail'
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {material.source}
+                          </span>
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleMergeConfirm}
+                disabled={!keepMaterialId || merging}
+                className="btn-gradient flex-1 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
+              >
+                {merging ? (
+                  <>
+                    <div className="spinner h-5 w-5 mr-2 border-white"></div>
+                    Merging...
+                  </>
+                ) : (
+                  <>
+                    <GitMerge className="h-5 w-5 mr-2" />
+                    Merge Materials
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => setShowMergeModal(false)}
+                disabled={merging}
+                className="glass-card px-6 py-3 rounded-xl font-medium text-gray-700 hover:text-red-600 hover:bg-red-50/50 transition-all duration-300 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
