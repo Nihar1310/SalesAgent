@@ -204,6 +204,14 @@ export const gmailAPI = {
     api.get(`/gmail/ingestion-log?limit=${limit}`),
   getStats: () => 
     api.get('/gmail/stats'),
+  getReviewQueue: (status = 'pending', search = '') => 
+    api.get(`/gmail/review-queue?status=${status}&search=${encodeURIComponent(search)}`),
+  approveReview: (id) => 
+    api.post(`/gmail/review-queue/${id}/approve`),
+  rejectReview: (id) => 
+    api.post(`/gmail/review-queue/${id}/reject`),
+  correctReview: (id, corrections) => 
+    api.post(`/gmail/review-queue/${id}/correct`, { corrections }),
 };
 
 // Health check

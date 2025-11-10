@@ -63,11 +63,14 @@ const GmailReviewQueue = () => {
   const fetchReviewItems = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/gmail/review-queue?status=${filter}&search=${searchTerm}`);
-      const data = await response.json();
-      setReviewItems(data.items || []);
+      const response = await gmailAPI.getReviewQueue(filter, searchTerm);
+      setReviewItems(response.data.items || []);
     } catch (error) {
       console.error('Error fetching review items:', error);
+      // If auth error, user might need to log in again
+      if (error.response?.status === 401) {
+        console.error('Authentication failed. Please log in again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -77,7 +80,7 @@ const GmailReviewQueue = () => {
     try {
       setIngesting(true);
       setIngestResult(null);
-      const response = await gmailAPI.ingest();
+      const response = await gmailAPI.triggerIngestion();
       setIngestResult(response.data);
       
       // Refresh review items after ingestion
@@ -98,22 +101,16 @@ const GmailReviewQueue = () => {
   const handleApprove = async (itemId) => {
     try {
       setProcessing(true);
-      const response = await fetch(`/api/gmail/review-queue/${itemId}/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      if (response.ok) {
-        await fetchReviewItems();
-        if (selectedItem?.id === itemId) {
-          setSelectedItem(null);
-        }
-        setCorrections((prev) => {
-          const updated = { ...prev };
-          delete updated[itemId];
-          return updated;
-        });
+      await gmailAPI.approveReview(itemId);
+      await fetchReviewItems();
+      if (selectedItem?.id === itemId) {
+        setSelectedItem(null);
       }
+      setCorrections((prev) => {
+        const updated = { ...prev };
+        delete updated[itemId];
+        return updated;
+      });
     } catch (error) {
       console.error('Error approving item:', error);
     } finally {
@@ -124,22 +121,16 @@ const GmailReviewQueue = () => {
   const handleReject = async (itemId) => {
     try {
       setProcessing(true);
-      const response = await fetch(`/api/gmail/review-queue/${itemId}/reject`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      if (response.ok) {
-        await fetchReviewItems();
-        if (selectedItem?.id === itemId) {
-          setSelectedItem(null);
-        }
-        setCorrections((prev) => {
-          const updated = { ...prev };
-          delete updated[itemId];
-          return updated;
-        });
+      await gmailAPI.rejectReview(itemId);
+      await fetchReviewItems();
+      if (selectedItem?.id === itemId) {
+        setSelectedItem(null);
       }
+      setCorrections((prev) => {
+        const updated = { ...prev };
+        delete updated[itemId];
+        return updated;
+      });
     } catch (error) {
       console.error('Error rejecting item:', error);
     } finally {
@@ -151,23 +142,16 @@ const GmailReviewQueue = () => {
     try {
       setProcessing(true);
       const payload = corrections[itemId] ? prepareCorrectionsPayload(corrections[itemId]) : {};
-      const response = await fetch(`/api/gmail/review-queue/${itemId}/correct`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ corrections: payload })
-      });
-      
-      if (response.ok) {
-        await fetchReviewItems();
-        if (selectedItem?.id === itemId) {
-          setSelectedItem(null);
-        }
-        setCorrections(prev => {
-          const updated = { ...prev };
-          delete updated[itemId];
-          return updated;
-        });
+      await gmailAPI.correctReview(itemId, payload);
+      await fetchReviewItems();
+      if (selectedItem?.id === itemId) {
+        setSelectedItem(null);
       }
+      setCorrections(prev => {
+        const updated = { ...prev };
+        delete updated[itemId];
+        return updated;
+      });
     } catch (error) {
       console.error('Error correcting item:', error);
     } finally {
