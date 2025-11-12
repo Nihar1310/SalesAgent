@@ -78,20 +78,59 @@ export const AuthProvider = ({ children }) => {
       throw new Error('Firebase auth is not initialized. Please check your Firebase configuration.');
     }
     
-    if (!window.recaptchaVerifier) {
+    // Clean up existing verifier if any
+    if (window.recaptchaVerifier) {
+      try {
+        window.recaptchaVerifier.clear();
+      } catch (e) {
+        console.warn('Error clearing existing reCAPTCHA:', e);
+      }
+      window.recaptchaVerifier = null;
+    }
+    
+    // Ensure the container element exists
+    const container = document.getElementById(elementId);
+    if (!container) {
+      throw new Error(`reCAPTCHA container element "${elementId}" not found. Make sure it exists in the DOM.`);
+    }
+    
+    try {
       window.recaptchaVerifier = new RecaptchaVerifier(auth, elementId, {
         size: 'invisible',
         callback: () => {
-          // reCAPTCHA solved
+          console.log('reCAPTCHA solved successfully');
         },
         'expired-callback': () => {
-          // Reset reCAPTCHA
-          window.recaptchaVerifier.clear();
-          window.recaptchaVerifier = null;
+          console.warn('reCAPTCHA expired, resetting...');
+          if (window.recaptchaVerifier) {
+            window.recaptchaVerifier.clear();
+            window.recaptchaVerifier = null;
+          }
         }
       });
+      
+      // Render the reCAPTCHA (for invisible, this prepares it)
+      window.recaptchaVerifier.render().then((widgetId) => {
+        console.log('reCAPTCHA rendered with widget ID:', widgetId);
+        window.recaptchaWidgetId = widgetId;
+      }).catch((error) => {
+        console.error('Error rendering reCAPTCHA:', error);
+        throw new Error(`Failed to initialize reCAPTCHA: ${error.message}`);
+      });
+      
+      return window.recaptchaVerifier;
+    } catch (error) {
+      console.error('Error setting up reCAPTCHA:', error);
+      if (window.recaptchaVerifier) {
+        try {
+          window.recaptchaVerifier.clear();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+        window.recaptchaVerifier = null;
+      }
+      throw error;
     }
-    return window.recaptchaVerifier;
   };
 
   const loginWithPhone = async (phoneNumber) => {
@@ -99,17 +138,52 @@ export const AuthProvider = ({ children }) => {
       throw new Error('Firebase auth is not initialized. Please check your Firebase configuration in .env file.');
     }
     
+    // Validate phone number format
+    if (!phoneNumber || !phoneNumber.startsWith('+')) {
+      throw new Error('Phone number must start with country code (e.g., +91 for India)');
+    }
+    
+    let recaptchaVerifier = null;
     try {
-      const recaptchaVerifier = setupRecaptcha('recaptcha-container');
+      // Wait a bit to ensure DOM is ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      recaptchaVerifier = setupRecaptcha('recaptcha-container');
+      
+      // Wait for reCAPTCHA to be ready (for invisible, this should be quick)
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      console.log('Calling signInWithPhoneNumber with:', phoneNumber);
       const confirmationResult = await signInWithPhoneNumber(auth, phoneNumber, recaptchaVerifier);
+      console.log('OTP sent successfully');
       return confirmationResult;
     } catch (error) {
       console.error('Error sending OTP:', error);
-      // Clean up reCAPTCHA on error
-      if (window.recaptchaVerifier) {
-        window.recaptchaVerifier.clear();
-        window.recaptchaVerifier = null;
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      
+      // Provide more helpful error messages
+      if (error.code === 'auth/invalid-app-credential') {
+        throw new Error('Firebase configuration error: Please check that localhost is added to authorized domains in Firebase Console and API key restrictions allow localhost.');
+      } else if (error.code === 'auth/operation-not-allowed') {
+        throw new Error('Phone authentication is not enabled. Please enable it in Firebase Console → Authentication → Sign-in method → Phone.');
+      } else if (error.code === 'auth/invalid-phone-number') {
+        throw new Error('Invalid phone number format. Please use E.164 format (e.g., +919876543210).');
+      } else if (error.code === 'auth/too-many-requests') {
+        throw new Error('Too many requests. Please try again later.');
       }
+      
+      // Clean up reCAPTCHA on error
+      if (recaptchaVerifier || window.recaptchaVerifier) {
+        try {
+          (recaptchaVerifier || window.recaptchaVerifier).clear();
+        } catch (e) {
+          console.warn('Error clearing reCAPTCHA:', e);
+        }
+        window.recaptchaVerifier = null;
+        window.recaptchaWidgetId = null;
+      }
+      
       throw error;
     }
   };

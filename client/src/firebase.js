@@ -11,14 +11,16 @@ const envCheck = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || 'MISSING'
 };
 console.log('🔍 Firebase env vars check:', envCheck);
+console.log('🌐 Current origin:', window.location.origin);
+console.log('🔑 API Key (first 15 chars):', import.meta.env.VITE_FIREBASE_API_KEY?.substring(0, 15) || 'NOT SET');
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY?.replace(/^"|"$/g, ''), // Remove quotes if present
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN?.replace(/^"|"$/g, ''),
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID?.replace(/^"|"$/g, ''),
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY?.replace(/^"|"$/g, '').trim(), // Remove quotes if present
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN?.replace(/^"|"$/g, '').trim(),
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID?.replace(/^"|"$/g, '').trim(),
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET?.replace(/^"|"$/g, '').trim(),
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID?.replace(/^"|"$/g, ''),
-  appId: import.meta.env.VITE_FIREBASE_APP_ID?.replace(/^"|"$/g, '')
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID?.replace(/^"|"$/g, '').trim(),
+  appId: import.meta.env.VITE_FIREBASE_APP_ID?.replace(/^"|"$/g, '').trim()
 };
 
 // Validate required fields
@@ -46,6 +48,12 @@ if (missingFields.length === 0) {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     console.log('✅ Firebase initialized successfully');
+    
+    // Additional debug: Check auth settings
+    if (auth) {
+      console.log('📱 Auth domain:', auth.config.authDomain);
+      console.log('🔐 API key matches:', auth.config.apiKey?.substring(0, 15) === firebaseConfig.apiKey?.substring(0, 15));
+    }
   } catch (error) {
     console.error('❌ Firebase initialization failed!');
     console.error('Error details:', error.message);
